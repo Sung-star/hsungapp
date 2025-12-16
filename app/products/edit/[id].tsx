@@ -1,0 +1,442 @@
+import { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  ScrollView,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  Image,
+  Alert,
+} from 'react-native';
+import { router, useLocalSearchParams } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import * as ImagePicker from 'expo-image-picker';
+import {
+  getProductById,
+  updateProduct,
+  uploadProductImage,
+} from '@/firebase/productService';
+
+export default function EditProductScreen() {
+  const { id } = useLocalSearchParams();
+  
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [category, setCategory] = useState('');
+  const [sku, setSku] = useState('');
+  const [price, setPrice] = useState('');
+  const [costPrice, setCostPrice] = useState('');
+  const [stock, setStock] = useState('');
+  const [imageUri, setImageUri] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  const categories = [
+    'Nước giải khát',
+    'Mì ăn liền',
+    'Bánh kẹo',
+    'Sữa',
+    'Bia rượu',
+    'Đồ ăn vặt',
+    'Gia vị',
+    'Vệ sinh',
+  ];
+
+  useEffect(() => {
+  const loadProduct = async () => {
+    const product = await getProductById(id as string);
+    if (!product) return;
+
+    setName(product.name);
+    setDescription(product.description);
+    setCategory(product.category);
+    setSku(product.sku);
+    setPrice(product.price.toString());
+    setCostPrice(product.costPrice.toString());
+    setStock(product.stock.toString());
+    setImageUri(product.imageUrl); // 🔥 URL Firebase
+    setLoading(false);
+  };
+
+  loadProduct();
+}, [id]);
+
+
+  const pickImage = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+
+    if (!result.canceled) {
+      setImageUri(result.assets[0].uri);
+    }
+  };
+
+  const handleUpdate = async () => {
+  setLoading(true);
+
+  try {
+    let imageUrl = imageUri;
+
+    // ✅ FIX Ở ĐÂY
+    if (imageUri && (imageUri.startsWith('file://') || imageUri.startsWith('blob:'))) {
+      imageUrl = await uploadProductImage(imageUri, id as string);
+    }
+
+    await updateProduct(id as string, {
+      name,
+      description,
+      category,
+      sku,
+      price: Number(price),
+      costPrice: Number(costPrice) || 0,
+      stock: Number(stock),
+      imageUrl, // ✅ luôn là https
+    });
+
+    Alert.alert('Thành công', 'Đã cập nhật');
+  } finally {
+    setLoading(false);
+  }
+};
+
+
+
+
+  return (
+    <View style={styles.container}>
+      {/* Header */}
+      <LinearGradient colors={['#667eea', '#764ba2']} style={styles.header}>
+        <View style={styles.headerContent}>
+          <TouchableOpacity
+            style={styles.backBtn}
+            onPress={() => router.back()}
+          >
+            <Ionicons name="arrow-back" size={24} color="white" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Chỉnh sửa sản phẩm</Text>
+          <View style={{ width: 40 }} />
+        </View>
+      </LinearGradient>
+
+      <ScrollView
+        style={styles.content}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Image Upload */}
+        <TouchableOpacity style={styles.imageUpload} onPress={pickImage}>
+          {imageUri ? (
+            <>
+              <Image source={{ uri: imageUri }} style={styles.uploadedImage} />
+              <View style={styles.editImageBadge}>
+                <Ionicons name="camera" size={16} color="white" />
+              </View>
+            </>
+          ) : (
+            <View style={styles.uploadPlaceholder}>
+              <Ionicons name="camera-outline" size={40} color="#999" />
+              <Text style={styles.uploadText}>Thêm ảnh sản phẩm</Text>
+            </View>
+          )}
+        </TouchableOpacity>
+
+        {/* Form Fields */}
+        <View style={styles.form}>
+          {/* Product Name */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>
+              Tên sản phẩm <Text style={styles.required}>*</Text>
+            </Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Nhập tên sản phẩm"
+              placeholderTextColor="#999"
+              value={name}
+              onChangeText={setName}
+            />
+          </View>
+
+          {/* Description */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Mô tả</Text>
+            <TextInput
+              style={[styles.input, styles.textArea]}
+              placeholder="Nhập mô tả sản phẩm"
+              placeholderTextColor="#999"
+              multiline
+              numberOfLines={4}
+              value={description}
+              onChangeText={setDescription}
+            />
+          </View>
+
+          {/* Category */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Danh mục</Text>
+            <View style={styles.categoryContainer}>
+              {categories.map((cat) => (
+                <TouchableOpacity
+                  key={cat}
+                  style={[
+                    styles.categoryChip,
+                    category === cat && styles.categoryChipActive,
+                  ]}
+                  onPress={() => setCategory(cat)}
+                >
+                  <Text
+                    style={[
+                      styles.categoryText,
+                      category === cat && styles.categoryTextActive,
+                    ]}
+                  >
+                    {cat}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          {/* SKU */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Mã SKU</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Nhập mã SKU"
+              placeholderTextColor="#999"
+              value={sku}
+              onChangeText={setSku}
+            />
+          </View>
+
+          {/* Price Row */}
+          <View style={styles.row}>
+            <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>
+              <Text style={styles.label}>
+                Giá bán <Text style={styles.required}>*</Text>
+              </Text>
+              <TextInput
+                style={styles.input}
+                placeholder="0"
+                placeholderTextColor="#999"
+                keyboardType="numeric"
+                value={price}
+                onChangeText={setPrice}
+              />
+            </View>
+
+            <View style={[styles.inputGroup, { flex: 1, marginLeft: 8 }]}>
+              <Text style={styles.label}>Giá nhập</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="0"
+                placeholderTextColor="#999"
+                keyboardType="numeric"
+                value={costPrice}
+                onChangeText={setCostPrice}
+              />
+            </View>
+          </View>
+
+          {/* Stock */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>
+              Số lượng tồn kho <Text style={styles.required}>*</Text>
+            </Text>
+            <TextInput
+              style={styles.input}
+              placeholder="0"
+              placeholderTextColor="#999"
+              keyboardType="numeric"
+              value={stock}
+              onChangeText={setStock}
+            />
+          </View>
+        </View>
+
+        <View style={{ height: 100 }} />
+      </ScrollView>
+
+      {/* Update Button */}
+      <View style={styles.footer}>
+        <TouchableOpacity style={styles.saveButton} onPress={handleUpdate}>
+          <LinearGradient
+            colors={['#667eea', '#764ba2']}
+            style={styles.saveGradient}
+          >
+            <Text style={styles.saveText}>Cập nhật sản phẩm</Text>
+          </LinearGradient>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#f5f6fa',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  header: {
+    paddingTop: 50,
+    paddingBottom: 20,
+    borderBottomLeftRadius: 30,
+    borderBottomRightRadius: 30,
+  },
+  headerContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+  },
+  backBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: 'white',
+  },
+  content: {
+    flex: 1,
+    paddingHorizontal: 20,
+  },
+  imageUpload: {
+    marginTop: 20,
+    marginBottom: 24,
+    alignSelf: 'center',
+    position: 'relative',
+  },
+  uploadPlaceholder: {
+    width: 150,
+    height: 150,
+    borderRadius: 75,
+    backgroundColor: 'white',
+    borderWidth: 2,
+    borderColor: '#e0e0e0',
+    borderStyle: 'dashed',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  uploadText: {
+    marginTop: 8,
+    fontSize: 14,
+    color: '#999',
+  },
+  uploadedImage: {
+    width: 150,
+    height: 150,
+    borderRadius: 75,
+  },
+  editImageBadge: {
+    position: 'absolute',
+    bottom: 5,
+    right: 5,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#667eea',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 3,
+    borderColor: 'white',
+  },
+  form: {
+    gap: 20,
+  },
+  inputGroup: {
+    marginBottom: 4,
+  },
+  label: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#1a1a1a',
+    marginBottom: 8,
+  },
+  required: {
+    color: '#FF6B6B',
+  },
+  input: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 16,
+    color: '#1a1a1a',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  textArea: {
+    height: 100,
+    textAlignVertical: 'top',
+  },
+  categoryContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  categoryChip: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: 'white',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  categoryChipActive: {
+    backgroundColor: '#667eea',
+    borderColor: '#667eea',
+  },
+  categoryText: {
+    fontSize: 14,
+    color: '#666',
+  },
+  categoryTextActive: {
+    color: 'white',
+    fontWeight: '600',
+  },
+  row: {
+    flexDirection: 'row',
+  },
+  footer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: 20,
+    backgroundColor: 'white',
+    borderTopWidth: 1,
+    borderTopColor: '#e0e0e0',
+  },
+  saveButton: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  saveGradient: {
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+  saveText: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: 'white',
+  },
+});
