@@ -1,21 +1,21 @@
+import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
+import { LinearGradient } from 'expo-linear-gradient';
+import { router } from 'expo-router';
 import { useState } from 'react';
 import {
-  View,
-  Text,
-  ScrollView,
-  TextInput,
-  TouchableOpacity,
-  StyleSheet,
-  Image,
-  Alert,
+    Alert,
+    Image,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from 'react-native';
-import { router } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
-import * as ImagePicker from 'expo-image-picker';
 
 // 🔥 IMPORT FIREBASE HÀM RIÊNG CỦA BẠN ↓
-import { uploadProductImage, addProduct,updateProduct } from '@/firebase/productService';
+import { addProduct, updateProduct, uploadProductImage } from '@/firebase/productService';
 
 export default function AddProductScreen() {
   const [name, setName] = useState('');
@@ -68,13 +68,14 @@ const handleSave = async () => {
       name,
       description,
       category,
+        categoryId: '',
       sku: sku || `SKU-${Date.now()}`,
       price: Number(price),
       costPrice: Number(costPrice) || 0,
       stock: Number(stock),
       imageUrl: '',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      createdAt: new Date(),
+      updatedAt: new Date(),
     });
 
     // 2️⃣ Upload ảnh SAU

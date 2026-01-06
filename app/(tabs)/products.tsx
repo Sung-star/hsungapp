@@ -1,18 +1,20 @@
-import { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  FlatList,
-  TouchableOpacity,
-  StyleSheet,
-  TextInput,
-  Image,
-  Alert,
-} from 'react-native';
-import { Link, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { getAllProducts, deleteProduct } from '@/services/productService';
+import { router } from 'expo-router';
+import { useEffect, useState } from 'react';
+import {
+    ActivityIndicator,
+    Alert,
+    FlatList,
+    Image,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
+} from 'react-native';
+// import { getAllProducts, deleteProduct } from '@/services/productService';
+import { deleteProduct, getAllProducts } from '@/firebase/productService';
 
 interface Product {
   id: string;
@@ -57,11 +59,21 @@ export default function ProductsScreen() {
       setProducts(data);
       setFilteredProducts(data);
     } catch (error) {
+      console.error(error);
       Alert.alert('Lỗi', 'Không thể tải danh sách sản phẩm');
     } finally {
       setLoading(false);
     }
   };
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#43A047" />
+        <Text style={styles.loadingText}>Đang tải sản phẩm...</Text>
+      </View>
+    );
+  }
 
   const handleDelete = (id: string, name: string) => {
     Alert.alert(
@@ -78,6 +90,7 @@ export default function ProductsScreen() {
               await loadProducts();
               Alert.alert('Thành công', 'Đã xóa sản phẩm');
             } catch (error) {
+              console.error(error);
               Alert.alert('Lỗi', 'Không thể xóa sản phẩm');
             }
           },
@@ -273,6 +286,9 @@ const styles = StyleSheet.create({
 
   emptyContainer: { alignItems: 'center', paddingVertical: 60 },
   emptyText: { fontSize: 16, color: '#999' },
+
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingTop: 40 },
+  loadingText: { marginTop: 12, color: '#666' },
 
   fabButton: {
     position: 'absolute',

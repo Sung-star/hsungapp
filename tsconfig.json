@@ -4,6 +4,7 @@
     "strict": true,
     "paths": {
       "@/*": [
+        "./app/*",
         "./*"
       ]
     }
@@ -14,4 +15,7 @@
     ".expo/types/**/*.ts",
     "expo-env.d.ts"
   ]
+  
 }
+
+

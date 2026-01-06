@@ -1,34 +1,34 @@
-import { useEffect } from 'react';
-import { View, StyleSheet } from 'react-native';
-import { useRouter } from 'expo-router';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Image } from 'expo-image';
+// app/index.tsx - AUTO REDIRECT TO LOGIN
 import { ThemedText } from '@/components/themed-text';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter } from 'expo-router';
+import { useEffect } from 'react';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
 export default function SplashScreen() {
   const router = useRouter();
 
   useEffect(() => {
-    // Redirect sau 2 giây
+    // ✅ Redirect sau 1 giây
     const timer = setTimeout(() => {
+      console.log('🚀 Redirecting to login...');
       router.replace('/auth/login');
-    }, 2000);
+    }, 1000);
 
     return () => clearTimeout(timer);
-  }, []);
+  }, [router]);
 
   return (
     <LinearGradient
-      colors={['#667eea', '#764ba2', '#f093fb']}
+      colors={['#2ecc71', '#27ae60', '#16a085']}
       style={styles.container}
     >
       <View style={styles.content}>
-        <Image
-          source={require('@/assets/images/hitc.png')}
-          style={styles.logo}
-        />
-        <ThemedText style={styles.title}>MyApp Store</ThemedText>
-        <ThemedText style={styles.subtitle}>Quản lý cửa hàng thông minh</ThemedText>
+        <ThemedText style={styles.title}>Siêu Thị Mini</ThemedText>
+        <ThemedText style={styles.subtitle}>
+          Mua sắm tiện lợi - Giá cả phải chăng
+        </ThemedText>
+        <ActivityIndicator size="large" color="white" style={{ marginTop: 20 }} />
       </View>
     </LinearGradient>
   );
@@ -43,12 +43,6 @@ const styles = StyleSheet.create({
   content: {
     alignItems: 'center',
   },
-  logo: {
-    width: 200,
-    height: 150,
-    resizeMode: 'contain',
-    marginBottom: 20,
-  },
   title: {
     fontSize: 32,
     fontWeight: '700',
@@ -58,5 +52,7 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 16,
     color: 'rgba(255,255,255,0.9)',
+    textAlign: 'center',
+    paddingHorizontal: 40,
   },
 });

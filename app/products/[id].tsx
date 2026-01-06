@@ -1,30 +1,19 @@
-import { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  ScrollView,
-  TouchableOpacity,
-  StyleSheet,
-  Image,
-  Alert,
-} from 'react-native';
-import { router, useLocalSearchParams } from 'expo-router';
+import ProductReviews from '@/components/productReviews';
+import { getProductById } from '@/firebase/productService';
+import { Product } from '@/types/product';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { getProductById } from '@/firebase/productService';
-
-interface Product {
-  id: string;
-  name: string;
-  description: string;
-  category: string;
-  sku: string;
-  price: number;
-  costPrice: number;
-  stock: number;
-  imageUrl: string;
-  createdAt: string;
-}
+import { router, useLocalSearchParams } from 'expo-router';
+import { useEffect, useState } from 'react';
+import {
+    Alert,
+    Image,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
+} from 'react-native';
 
 export default function ProductDetailScreen() {
   const { id } = useLocalSearchParams();
@@ -33,7 +22,7 @@ export default function ProductDetailScreen() {
  useEffect(() => {
   const load = async () => {
     const p = await getProductById(id as string);
-    setProduct(p);
+    setProduct(p as Product | null);
   };
   load();
 }, [id]);
@@ -185,8 +174,8 @@ export default function ProductDetailScreen() {
           <View style={styles.detailRow}>
             <Text style={styles.detailLabel}>Ngày tạo:</Text>
             <Text style={styles.detailValue}>
-              {new Date(product.createdAt).toLocaleDateString('vi-VN')}
-            </Text>
+                {product.createdAt instanceof Date ? product.createdAt.toLocaleDateString('vi-VN') : new Date(product.createdAt).toLocaleDateString('vi-VN')}
+              </Text>
           </View>
 
           <View style={styles.detailRow}>
@@ -225,6 +214,9 @@ export default function ProductDetailScreen() {
             </LinearGradient>
           </TouchableOpacity>
         </View>
+
+        {/* Product reviews section (product-level) */}
+        <ProductReviews productId={product.id} />
 
         <View style={{ height: 100 }} />
       </ScrollView>

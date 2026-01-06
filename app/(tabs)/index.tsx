@@ -1,19 +1,22 @@
-import { useState, useEffect } from 'react';
-import { 
-  View, 
-  Text, 
-  ScrollView, 
-  TouchableOpacity, 
-  StyleSheet,
-  Dimensions 
-} from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
+import { getAllOrders } from '@/firebase/orderService';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Link } from 'expo-router';
+import { useEffect, useState } from 'react';
+import {
+  Dimensions,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 
 const { width } = Dimensions.get('window');
 
 export default function DashboardScreen() {
+  
+
   const [stats, setStats] = useState({
     totalProducts: 0,
     totalRevenue: 0,
@@ -21,27 +24,53 @@ export default function DashboardScreen() {
     totalCustomers: 0,
   });
 
-  const [recentOrders, setRecentOrders] = useState([]);
+  const [recentOrders, setRecentOrders] = useState<any[]>([]);
 
-  // Fake data
   useEffect(() => {
-    setStats({
-      totalProducts: 156,
-      totalRevenue: 45678000,
-      todayOrders: 23,
-      totalCustomers: 89,
-    });
+    const loadStats = async () => {
+      try {
+        const orders = await getAllOrders();
 
-    setRecentOrders([
-      { id: '1', customer: 'Nguyễn Văn A', total: 450000, time: '10:30' },
-      { id: '2', customer: 'Trần Thị B', total: 320000, time: '11:15' },
-      { id: '3', customer: 'Lê Văn C', total: 890000, time: '12:00' },
-    ]);
+        const today = new Date().toDateString();
+
+        // ✅ ĐƠN HÔM NAY
+        const todayOrdersList = orders.filter(
+          (order) =>
+            order.createdAt &&
+            order.createdAt.toDateString() === today
+        );
+
+        // ✅ DOANH THU HÔM NAY
+        const revenue = todayOrdersList
+          .filter((order) => order.status === 'completed')
+          .reduce((sum, order) => sum + (order.total || 0), 0);
+        setStats({
+          totalProducts: 156,
+          totalRevenue: revenue,
+          todayOrders: todayOrdersList.length,
+          totalCustomers: 89,
+        });
+
+        // ✅ ĐƠN GẦN ĐÂY (5 đơn)
+        setRecentOrders(
+          orders.slice(0, 5).map((order) => ({
+            id: order.id,
+            customer: order.customerName || 'Khách lẻ',
+            time: order.createdAt
+              ? order.createdAt.toLocaleString('vi-VN')
+              : '',
+            total: order.total || 0,
+          }))
+        );
+      } catch (error) {
+        console.error('❌ Error loading stats:', error);
+      }
+    };
+
+    loadStats();
   }, []);
 
-  // ❌ SAI: formatCurrency(amount: number)  (TypeScript)
-  // ✔ ĐÚNG: formatCurrency(amount)
-  const formatCurrency = (amount) => {
+  const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('vi-VN', {
       style: 'currency',
       currency: 'VND',
@@ -143,7 +172,11 @@ export default function DashboardScreen() {
                 colors={['#FF6B6B', '#FF8E8E']}
                 style={styles.actionGradient}
               >
-                <Ionicons name="file-tray-full-outline" size={32} color="white" />
+                <Ionicons
+                  name="file-tray-full-outline"
+                  size={32}
+                  color="white"
+                />
               </LinearGradient>
               <Text style={styles.actionLabel}>Nhập hàng</Text>
             </TouchableOpacity>
@@ -155,7 +188,11 @@ export default function DashboardScreen() {
                 colors={['#FFA726', '#FFB74D']}
                 style={styles.actionGradient}
               >
-                <Ionicons name="stats-chart-outline" size={32} color="white" />
+                <Ionicons
+                  name="stats-chart-outline"
+                  size={32}
+                  color="white"
+                />
               </LinearGradient>
               <Text style={styles.actionLabel}>Thống kê</Text>
             </TouchableOpacity>
@@ -195,10 +232,8 @@ export default function DashboardScreen() {
       <View style={{ height: 100 }} />
     </ScrollView>
   );
+  
 }
-
-
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -375,3 +410,4 @@ const styles = StyleSheet.create({
     color: '#43A047',
   },
 });
+

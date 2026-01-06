@@ -18,6 +18,11 @@ expo-env.d.ts
 *.key
 *.mobileprovision
 
+dist
+web-build
+
+.env
+.env.local
 # Metro
 .metro-health-check*
 
