@@ -18,6 +18,7 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
+import { showAlert, showAlertWithOptions, showConfirmDialog } from '@/utils/platformAlert';
 
 export default function ProfileScreen() {
   const user = auth.currentUser;
@@ -103,23 +104,20 @@ export default function ProfileScreen() {
   };
 
   const handleLogout = () => {
-    Alert.alert('Đăng xuất', 'Bạn có chắc muốn đăng xuất?', [
-      { text: 'Hủy', style: 'cancel' },
-      {
-        text: 'Đăng xuất',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await logout();
-            router.replace('/auth/login');
-          } catch (error) {
-              console.error(error);
-              Alert.alert('Lỗi', 'Không thể đăng xuất');
-          }
-        },
-      },
-    ]);
-  };
+  showConfirmDialog(
+    'Đăng xuất',
+    'Bạn có chắc muốn đăng xuất?',
+    async () => {
+      try {
+        await logout();
+        router.replace('/auth/login');
+      } catch (error) {
+        showAlert('Lỗi', 'Không thể đăng xuất. Vui lòng thử lại.');
+      }
+    }
+  );
+};
+
 
   return (
     <View style={styles.container}>

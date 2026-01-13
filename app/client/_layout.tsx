@@ -1,4 +1,4 @@
-// app/client/_layout.tsx
+// app/client/_layout.tsx - FIXED VERSION
 import { Ionicons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
 
@@ -7,7 +7,7 @@ export default function ClientLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: '#667eea',
+        tabBarActiveTintColor: '#2ecc71',
         tabBarInactiveTintColor: '#999',
         tabBarStyle: {
           backgroundColor: 'white',
@@ -64,11 +64,11 @@ export default function ClientLayout() {
         }}
       />
 
-      {/* Hidden Routes - Not in Tab Bar - Use folder paths */}
+      {/* Hidden Routes - Not in Tab Bar */}
       <Tabs.Screen
-        name="order/index"
+        name="my-orders"
         options={{
-          href: null,
+          href: null, // Hide from tab bar
         }}
       />
 
@@ -95,6 +95,21 @@ export default function ClientLayout() {
 
       <Tabs.Screen
         name="favorites"
+        options={{
+          href: null,
+        }}
+      />
+
+      {/* NEW: Hidden Routes for Password & Notifications */}
+      <Tabs.Screen
+        name="change-password"
+        options={{
+          href: null,
+        }}
+      />
+
+      <Tabs.Screen
+        name="notifications"
         options={{
           href: null,
         }}

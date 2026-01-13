@@ -1,3 +1,5 @@
+// app/client/profile.tsx - COMPLETE Profile Screen with All Modals
+
 import { auth, db } from '@/config/firebase';
 import { logout } from '@/services/authService';
 import { Ionicons } from '@expo/vector-icons';
@@ -17,8 +19,9 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-
+import { showAlert, showConfirmDialog } from '@/utils/platformAlert';
 import { updateProfile } from 'firebase/auth';
+import { useNotifications } from '@/hooks/useNotifications';
 
 interface Address {
   id: string;
@@ -38,6 +41,8 @@ interface UserSettings {
 export default function ClientProfileScreen() {
   const user = auth.currentUser;
   const router = useRouter();
+  const { unreadCount } = useNotifications();
+  
   const [stats, setStats] = useState({
     totalOrders: 0,
     completedOrders: 0,
@@ -252,21 +257,18 @@ export default function ClientProfileScreen() {
   };
 
   const handleLogout = () => {
-    Alert.alert('Đăng xuất', 'Bạn có chắc muốn đăng xuất?', [
-      { text: 'Hủy', style: 'cancel' },
-      {
-        text: 'Đăng xuất',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await logout();
-            router.replace('/auth/login');
-          } catch (error) {
-            Alert.alert('Lỗi', 'Không thể đăng xuất');
-          }
-        },
-      },
-    ]);
+    showConfirmDialog(
+      'Đăng xuất',
+      'Bạn có chắc muốn đăng xuất?',
+      async () => {
+        try {
+          await logout();
+          router.replace('/auth/login');
+        } catch (error) {
+          showAlert('Lỗi', 'Không thể đăng xuất. Vui lòng thử lại.');
+        }
+      }
+    );
   };
 
   return (
@@ -332,9 +334,23 @@ export default function ClientProfileScreen() {
             <Ionicons name="chevron-forward" size={20} color="#999" />
           </TouchableOpacity>
 
+          {/* NEW: Change Password */}
           <TouchableOpacity
             style={styles.menuItem}
-            onPress={() => router.push('/client/order')}
+            onPress={() => router.push('/client/change-password')}
+          >
+            <View style={styles.menuItemLeft}>
+              <View style={[styles.menuIcon, { backgroundColor: '#F3E5F5' }]}>
+                <Ionicons name="key-outline" size={22} color="#9C27B0" />
+              </View>
+              <Text style={styles.menuText}>Đổi mật khẩu</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#999" />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.menuItem}
+            onPress={() => router.push('/client/my-orders')}
           >
             <View style={styles.menuItemLeft}>
               <View style={[styles.menuIcon, { backgroundColor: '#FFF3E0' }]}>
@@ -397,15 +413,36 @@ export default function ClientProfileScreen() {
         <View style={styles.menuSection}>
           <Text style={styles.menuTitle}>Cài đặt</Text>
 
+          {/* NEW: Notifications */}
+          <TouchableOpacity
+            style={styles.menuItem}
+            onPress={() => router.push('/client/notifications')}
+          >
+            <View style={styles.menuItemLeft}>
+              <View style={[styles.menuIcon, { backgroundColor: '#FFF3E0' }]}>
+                <Ionicons name="notifications-outline" size={22} color="#FFA726" />
+              </View>
+              <Text style={styles.menuText}>Thông báo</Text>
+            </View>
+            <View style={styles.menuItemRight}>
+              {unreadCount > 0 && (
+                <View style={[styles.orderBadge, { backgroundColor: '#FF6B6B' }]}>
+                  <Text style={styles.orderBadgeText}>{unreadCount}</Text>
+                </View>
+              )}
+              <Ionicons name="chevron-forward" size={20} color="#999" />
+            </View>
+          </TouchableOpacity>
+
           <TouchableOpacity
             style={styles.menuItem}
             onPress={() => setShowSettingsModal(true)}
           >
             <View style={styles.menuItemLeft}>
               <View style={[styles.menuIcon, { backgroundColor: '#F3E5F5' }]}>
-                <Ionicons name="notifications-outline" size={22} color="#9C27B0" />
+                <Ionicons name="settings-outline" size={22} color="#9C27B0" />
               </View>
-              <Text style={styles.menuText}>Thông báo</Text>
+              <Text style={styles.menuText}>Cài đặt thông báo</Text>
             </View>
             <Ionicons name="chevron-forward" size={20} color="#999" />
           </TouchableOpacity>
@@ -713,23 +750,17 @@ export default function ClientProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f5f6fa',
-  },
+  container: { flex: 1, backgroundColor: '#f5f6fa' },
+
+  /* ===== HEADER ===== */
   header: {
     paddingTop: 60,
     paddingBottom: 32,
     borderBottomLeftRadius: 30,
     borderBottomRightRadius: 30,
   },
-  headerContent: {
-    alignItems: 'center',
-    paddingHorizontal: 20,
-  },
-  avatarContainer: {
-    marginBottom: 16,
-  },
+  headerContent: { alignItems: 'center', paddingHorizontal: 20 },
+  avatarContainer: { marginBottom: 16 },
   avatar: {
     width: 90,
     height: 90,
@@ -747,20 +778,12 @@ const styles = StyleSheet.create({
     borderWidth: 4,
     borderColor: 'white',
   },
-  name: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: 'white',
-    marginBottom: 4,
-  },
-  email: {
-    fontSize: 14,
-    color: 'rgba(255,255,255,0.9)',
-  },
-  content: {
-    flex: 1,
-    marginTop: -20,
-  },
+  name: { fontSize: 22, fontWeight: '700', color: 'white' },
+  email: { fontSize: 14, color: 'rgba(255,255,255,0.9)' },
+
+  content: { flex: 1, marginTop: -20 },
+
+  /* ===== STATS ===== */
   statsContainer: {
     flexDirection: 'row',
     paddingHorizontal: 20,
@@ -772,10 +795,6 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 16,
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
     elevation: 5,
   },
   statValue: {
@@ -783,104 +802,79 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: 'white',
     marginTop: 8,
-    marginBottom: 4,
   },
   statLabel: {
     fontSize: 11,
     color: 'rgba(255,255,255,0.9)',
   },
-  menuSection: {
-    marginTop: 8,
-    paddingHorizontal: 20,
-  },
+
+  /* ===== MENU ===== */
+  menuSection: { paddingHorizontal: 20, marginBottom: 16 },
   menuTitle: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
     color: '#999',
     marginBottom: 12,
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
   },
   menuItem: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: 'white',
+    alignItems: 'center',
+    backgroundColor: '#fff',
     padding: 16,
     borderRadius: 12,
-    marginBottom: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
+    marginBottom: 10,
     elevation: 2,
   },
-  menuItemLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
+  menuItemLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   menuIcon: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    justifyContent: 'center',
     alignItems: 'center',
+    justifyContent: 'center',
   },
   menuText: {
     fontSize: 15,
     fontWeight: '500',
     color: '#1a1a1a',
   },
-  menuItemRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
+  menuItemRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+
   orderBadge: {
-    backgroundColor: '#FFA726',
+    backgroundColor: '#FF6B6B',
+    borderRadius: 10,
     paddingHorizontal: 8,
     paddingVertical: 2,
-    borderRadius: 10,
-    minWidth: 24,
+    minWidth: 22,
     alignItems: 'center',
   },
-  orderBadgeText: {
-    color: 'white',
-    fontSize: 12,
-    fontWeight: '700',
-  },
+  orderBadgeText: { color: '#fff', fontSize: 12, fontWeight: '700' },
+
+  /* ===== LOGOUT ===== */
   logoutButton: {
     marginHorizontal: 20,
-    marginTop: 32,
-    borderRadius: 12,
+    marginTop: 24,
+    borderRadius: 14,
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
   },
   logoutGradient: {
+    paddingVertical: 16,
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    paddingVertical: 16,
   },
-  logoutText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: 'white',
-  },
-  // Modal Styles
+  logoutText: { color: 'white', fontSize: 16, fontWeight: '700' },
+
+  /* ===== MODAL ===== */
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'flex-end',
   },
   modalContent: {
-    backgroundColor: 'white',
+    backgroundColor: '#fff',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     padding: 24,
@@ -889,169 +883,142 @@ const styles = StyleSheet.create({
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 24,
+    marginBottom: 20,
   },
   modalTitle: {
     fontSize: 20,
     fontWeight: '700',
     color: '#1a1a1a',
   },
-  inputGroup: {
-    marginBottom: 20,
-  },
-  inputLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#666',
-    marginBottom: 8,
-  },
+
+  /* ===== FORM ===== */
+  inputGroup: { marginBottom: 16 },
+  inputLabel: { fontSize: 14, fontWeight: '600', color: '#666' },
   input: {
+    marginTop: 6,
     borderWidth: 1,
     borderColor: '#e0e0e0',
     borderRadius: 12,
     padding: 14,
-    fontSize: 15,
-    color: '#1a1a1a',
     backgroundColor: '#fafafa',
   },
-  inputDisabled: {
-    backgroundColor: '#f5f5f5',
-    color: '#999',
-  },
-  textArea: {
-    height: 80,
-    textAlignVertical: 'top',
-  },
+  inputDisabled: { backgroundColor: '#eee' },
+  textArea: { height: 80, textAlignVertical: 'top' },
+
   saveButton: {
     backgroundColor: '#667eea',
     padding: 16,
     borderRadius: 12,
     alignItems: 'center',
-    marginTop: 12,
-  },
-  saveButtonDisabled: {
-    opacity: 0.6,
+    marginTop: 10,
   },
   saveButtonText: {
     color: 'white',
     fontSize: 16,
     fontWeight: '700',
   },
-  // Address Styles
-  addressCard: {
-    backgroundColor: '#f8f9fa',
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-  },
-  addressHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  addressName: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#1a1a1a',
-  },
-  defaultBadge: {
-    backgroundColor: '#43A047',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  defaultBadgeText: {
-    color: 'white',
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  addressPhone: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 4,
-  },
-  addressText: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 12,
-  },
-  deleteAddressBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    alignSelf: 'flex-start',
-  },
-  deleteAddressText: {
-    color: '#FF6B6B',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  newAddressSection: {
-    marginTop: 8,
-    paddingTop: 20,
-    borderTopWidth: 1,
-    borderTopColor: '#e0e0e0',
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#1a1a1a',
-    marginBottom: 16,
-  },
-  // Settings Styles
-  settingItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-  },
-  settingText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#1a1a1a',
-    marginBottom: 4,
-  },
-  settingDesc: {
-    fontSize: 13,
-    color: '#999',
-  },
-  // Help Styles
+
+  /* ===== HELP ===== */
   helpSection: {
     alignItems: 'center',
     padding: 20,
     backgroundColor: '#f8f9fa',
-    borderRadius: 12,
+    borderRadius: 14,
     marginBottom: 16,
   },
   helpIcon: {
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: 'white',
+    backgroundColor: '#fff',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    marginBottom: 10,
     elevation: 3,
   },
-  helpTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#1a1a1a',
-    marginBottom: 4,
-  },
-  helpText: {
-    fontSize: 14,
-    color: '#666',
-    textAlign: 'center',
-  },
+  helpTitle: { fontSize: 16, fontWeight: '700' },
+  helpText: { fontSize: 14, color: '#666', textAlign: 'center' },
+  /* ===== ADDRESS ===== */
+addressCard: {
+  backgroundColor: '#fff',
+  padding: 16,
+  borderRadius: 14,
+  marginBottom: 12,
+  elevation: 2,
+},
+addressHeader: {
+  flexDirection: 'row',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+},
+addressName: {
+  fontSize: 15,
+  fontWeight: '700',
+  color: '#1a1a1a',
+},
+defaultBadge: {
+  backgroundColor: '#43A047',
+  borderRadius: 8,
+  paddingHorizontal: 8,
+  paddingVertical: 2,
+},
+defaultBadgeText: {
+  color: 'white',
+  fontSize: 11,
+  fontWeight: '700',
+},
+addressPhone: {
+  marginTop: 6,
+  fontSize: 13,
+  color: '#555',
+},
+addressText: {
+  marginTop: 4,
+  fontSize: 14,
+  color: '#333',
+},
+deleteAddressBtn: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  gap: 6,
+  marginTop: 10,
+},
+deleteAddressText: {
+  color: '#FF6B6B',
+  fontSize: 14,
+  fontWeight: '600',
+},
+
+/* ===== ADD NEW ADDRESS ===== */
+newAddressSection: {
+  marginTop: 20,
+  paddingTop: 20,
+  borderTopWidth: 1,
+  borderTopColor: '#eee',
+},
+sectionTitle: {
+  fontSize: 16,
+  fontWeight: '700',
+  marginBottom: 12,
+},
+
+/* ===== SETTINGS ===== */
+settingItem: {
+  flexDirection: 'row',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  paddingVertical: 14,
+  borderBottomWidth: 1,
+  borderBottomColor: '#eee',
+},
+settingText: {
+  fontSize: 15,
+  fontWeight: '600',
+},
+settingDesc: {
+  fontSize: 13,
+  color: '#777',
+  marginTop: 2,
+},
+
 });

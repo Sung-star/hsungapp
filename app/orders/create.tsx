@@ -16,7 +16,7 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
-import { Order, OrderItem } from '../types/order';
+import { Order, OrderItem } from '@/types/order';
 
 interface Product {
   id: string;

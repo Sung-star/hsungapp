@@ -1,4 +1,4 @@
-// app/auth/login.tsx - UNIFIED LOGIN SCREEN
+// app/auth/login.tsx - FIXED LOGIN SCREEN
 import { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -100,7 +100,7 @@ export default function LoginScreen() {
               />
             </View>
 
-            <Text style={styles.title}>Đăng nhập </Text>
+            <Text style={styles.title}>Đăng nhập</Text>
             <Text style={styles.subtitle}>Siêu Thị Mini</Text>
 
             {/* Error Message */}
@@ -149,6 +149,14 @@ export default function LoginScreen() {
                 />
               </TouchableOpacity>
             </View>
+
+            {/* Forgot Password Link */}
+            <TouchableOpacity 
+              onPress={() => router.push('/auth/forgot-password')}
+              style={styles.forgotPasswordButton}
+            >
+              <Text style={styles.forgotPasswordText}>Quên mật khẩu?</Text>
+            </TouchableOpacity>
 
             {/* Login Button */}
             <TouchableOpacity
@@ -268,6 +276,15 @@ const styles = StyleSheet.create({
   },
   eyeIcon: {
     padding: 5,
+  },
+  forgotPasswordButton: {
+    alignSelf: 'flex-end',
+    marginBottom: 12,
+  },
+  forgotPasswordText: {
+    fontSize: 14,
+    color: '#667eea',
+    fontWeight: '600',
   },
   buttonWrapper: {
     marginTop: 10,

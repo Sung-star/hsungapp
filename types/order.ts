@@ -1,25 +1,35 @@
+// types/order.ts
+export type OrderStatus = 
+  | 'pending' 
+  | 'confirmed' 
+  | 'preparing' 
+  | 'delivering' 
+  | 'completed' 
+  | 'cancelled';
+
 export interface OrderItem {
   productId: string;
   productName: string;
-  productImage: string;
+  productImage?: string;
   quantity: number;
   price: number;
   total: number;
 }
 
 export interface Order {
-  id?: string;
+  id: string;
   orderNumber: string;
-  customerId?: string;
   customerName: string;
   customerPhone: string;
+  customerId?: string;
+  address?: string;
   items: OrderItem[];
   subtotal: number;
   discount: number;
   total: number;
   paymentMethod: 'cash' | 'transfer' | 'card';
-  status: 'pending' | 'completed' | 'cancelled';
+  status: OrderStatus;
   note?: string;
-  createdAt?: any;
-  updatedAt?: any;
+  createdAt: Date | null;
+  updatedAt?: Date | null;
 }

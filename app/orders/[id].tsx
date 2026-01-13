@@ -1,18 +1,24 @@
-import { deleteOrder, getOrderById, updateOrder } from '@/firebase/orderService';
+// app/orders/[id].tsx
+import {
+  deleteOrder,
+  getOrder,
+  updateOrderStatus
+} from '@/firebase/orderService';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
-    Alert,
-    Image,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  Alert,
+  Image,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+  ActivityIndicator,
 } from 'react-native';
-import { Order } from '../types/order';
+import { Order, OrderStatus } from '@/types/order';
 
 export default function OrderDetailScreen() {
   const { id } = useLocalSearchParams();
@@ -23,7 +29,7 @@ export default function OrderDetailScreen() {
     const loadOrder = async () => {
       try {
         setLoading(true);
-        const data = await getOrderById(id as string);
+        const data = await getOrder(id as string);
         if (!data) {
           Alert.alert('Lỗi', 'Không tìm thấy đơn hàng', [
             { text: 'OK', onPress: () => router.back() },
@@ -49,30 +55,43 @@ export default function OrderDetailScreen() {
     }).format(amount);
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'pending':
-        return '#FFA726';
-      case 'completed':
-        return '#43A047';
-      case 'cancelled':
-        return '#FF6B6B';
-      default:
-        return '#999';
+  const formatDate = (date: Date | null) => {
+    if (!date) return 'N/A';
+    try {
+      return date.toLocaleDateString('vi-VN', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    } catch (error) {
+      return 'N/A';
     }
   };
 
-  const getStatusText = (status: string) => {
-    switch (status) {
-      case 'pending':
-        return 'Chờ xử lý';
-      case 'completed':
-        return 'Hoàn thành';
-      case 'cancelled':
-        return 'Đã hủy';
-      default:
-        return status;
-    }
+  const getStatusColor = (status: string): string => {
+    const colorMap: Record<string, string> = {
+      pending: '#FFA726',
+      confirmed: '#42A5F5',
+      preparing: '#AB47BC',
+      delivering: '#5C6BC0',
+      completed: '#66BB6A',
+      cancelled: '#EF5350',
+    };
+    return colorMap[status] || '#999';
+  };
+
+  const getStatusText = (status: string): string => {
+    const textMap: Record<string, string> = {
+      pending: 'Chờ xác nhận',
+      confirmed: 'Đã xác nhận',
+      preparing: 'Đang chuẩn bị',
+      delivering: 'Đang giao',
+      completed: 'Hoàn thành',
+      cancelled: 'Đã hủy',
+    };
+    return textMap[status] || String(status);
   };
 
   const getPaymentMethodText = (method: string) => {
@@ -88,7 +107,7 @@ export default function OrderDetailScreen() {
     }
   };
 
-  const handleUpdateStatus = async (newStatus: 'pending' | 'completed' | 'cancelled') => {
+  const handleUpdateStatus = async (newStatus: OrderStatus) => {
     if (!order) return;
 
     const statusText = getStatusText(newStatus);
@@ -101,7 +120,7 @@ export default function OrderDetailScreen() {
           text: 'Xác nhận',
           onPress: async () => {
             try {
-              await updateOrder(id as string, { status: newStatus });
+              await updateOrderStatus(id as string, newStatus);
               setOrder({ ...order, status: newStatus });
               Alert.alert('Thành công', 'Đã cập nhật trạng thái');
             } catch (error) {
@@ -139,13 +158,25 @@ export default function OrderDetailScreen() {
     );
   };
 
-  if (loading || !order) {
+  if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <Text>Đang tải...</Text>
+        <ActivityIndicator size="large" color="#667eea" />
+        <Text style={styles.loadingText}>Đang tải...</Text>
       </View>
     );
   }
+
+  if (!order) {
+    return (
+      <View style={styles.loadingContainer}>
+        <Text style={styles.loadingText}>Không tìm thấy đơn hàng</Text>
+      </View>
+    );
+  }
+
+  // Force convert status to string
+  const orderStatus = String(order.status);
 
   return (
     <View style={styles.container}>
@@ -166,29 +197,21 @@ export default function OrderDetailScreen() {
           <View style={styles.orderHeader}>
             <View>
               <Text style={styles.orderNumber}>{order.orderNumber}</Text>
-              <Text style={styles.orderDate}>
-                {new Date(order.createdAt).toLocaleDateString('vi-VN', {
-                  year: 'numeric',
-                  month: 'long',
-                  day: 'numeric',
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })}
-              </Text>
+              <Text style={styles.orderDate}>{formatDate(order.createdAt)}</Text>
             </View>
             <View
               style={[
                 styles.statusBadge,
-                { backgroundColor: `${getStatusColor(order.status)}20` },
+                { backgroundColor: `${getStatusColor(orderStatus)}20` },
               ]}
             >
               <Text
                 style={[
                   styles.statusText,
-                  { color: getStatusColor(order.status) },
+                  { color: getStatusColor(orderStatus) },
                 ]}
               >
-                {getStatusText(order.status)}
+                {getStatusText(orderStatus)}
               </Text>
             </View>
           </View>
@@ -210,6 +233,13 @@ export default function OrderDetailScreen() {
             <Text style={styles.infoLabel}>SĐT:</Text>
             <Text style={styles.infoValue}>{order.customerPhone}</Text>
           </View>
+          {order.address && (
+            <View style={styles.infoRow}>
+              <Ionicons name="location" size={18} color="#666" />
+              <Text style={styles.infoLabel}>Địa chỉ:</Text>
+              <Text style={styles.infoValue}>{order.address}</Text>
+            </View>
+          )}
         </View>
 
         {/* Products Card */}
@@ -283,18 +313,18 @@ export default function OrderDetailScreen() {
         )}
 
         {/* Action Buttons */}
-        {order.status === 'pending' && (
+        {orderStatus === 'pending' && (
           <View style={styles.actionsCard}>
             <TouchableOpacity
               style={styles.actionButton}
-              onPress={() => handleUpdateStatus('completed')}
+              onPress={() => handleUpdateStatus('confirmed')}
             >
               <LinearGradient
-                colors={['#43A047', '#66BB6A']}
+                colors={['#42A5F5', '#64B5F6']}
                 style={styles.actionGradient}
               >
                 <Ionicons name="checkmark-circle-outline" size={24} color="white" />
-                <Text style={styles.actionText}>Hoàn thành</Text>
+                <Text style={styles.actionText}>Xác nhận</Text>
               </LinearGradient>
             </TouchableOpacity>
 
@@ -311,6 +341,51 @@ export default function OrderDetailScreen() {
               </LinearGradient>
             </TouchableOpacity>
           </View>
+        )}
+
+        {orderStatus === 'confirmed' && (
+          <TouchableOpacity
+            style={[styles.actionButton, { marginHorizontal: 20, marginTop: 16 }]}
+            onPress={() => handleUpdateStatus('preparing')}
+          >
+            <LinearGradient
+              colors={['#AB47BC', '#BA68C8']}
+              style={styles.actionGradient}
+            >
+              <Ionicons name="restaurant-outline" size={24} color="white" />
+              <Text style={styles.actionText}>Bắt đầu chuẩn bị</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        )}
+
+        {orderStatus === 'preparing' && (
+          <TouchableOpacity
+            style={[styles.actionButton, { marginHorizontal: 20, marginTop: 16 }]}
+            onPress={() => handleUpdateStatus('delivering')}
+          >
+            <LinearGradient
+              colors={['#5C6BC0', '#7986CB']}
+              style={styles.actionGradient}
+            >
+              <Ionicons name="bicycle-outline" size={24} color="white" />
+              <Text style={styles.actionText}>Bắt đầu giao hàng</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        )}
+
+        {orderStatus === 'delivering' && (
+          <TouchableOpacity
+            style={[styles.actionButton, { marginHorizontal: 20, marginTop: 16 }]}
+            onPress={() => handleUpdateStatus('completed')}
+          >
+            <LinearGradient
+              colors={['#43A047', '#66BB6A']}
+              style={styles.actionGradient}
+            >
+              <Ionicons name="checkmark-done-circle-outline" size={24} color="white" />
+              <Text style={styles.actionText}>Hoàn thành</Text>
+            </LinearGradient>
+          </TouchableOpacity>
         )}
 
         <View style={{ height: 100 }} />
@@ -336,6 +411,11 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: '#999',
   },
   header: {
     paddingTop: 50,

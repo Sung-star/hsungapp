@@ -1,6 +1,8 @@
+// app/client/index.tsx - ✅ UPDATED WITH CROSS-PLATFORM ALERTS
 import { auth, db } from '@/config/firebase';
 import { useCart } from '@/contexts/CartContext';
 import { logout } from '@/services/authService';
+import { showAlert, showConfirmDialog } from '@/utils/platformAlert';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
@@ -8,7 +10,6 @@ import { collection, getDocs, limit, query, orderBy } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Image,
   ScrollView,
   StyleSheet,
@@ -24,7 +25,7 @@ interface Product {
   price: number;
   category: string;
   stock: number;
-  imageUrl?: string; // ===== FIX =====
+  imageUrl?: string;
   description?: string;
 }
 
@@ -50,7 +51,6 @@ export default function ClientHome() {
       const q = query(productsRef, orderBy('createdAt', 'desc'), limit(8));
       const snapshot = await getDocs(q);
 
-      // ===== FIX imageUrl + map tường minh =====
       const productsList: Product[] = snapshot.docs.map(doc => {
         const data = doc.data();
         return {
@@ -81,13 +81,13 @@ export default function ClientHome() {
 
   const handleAddToCart = (product: Product) => {
     if (product.stock <= 0) {
-      Alert.alert('Thông báo', 'Sản phẩm đã hết hàng');
+      showAlert('Thông báo', 'Sản phẩm đã hết hàng');
       return;
     }
 
     const cartItem = items.find(item => item.productId === product.id);
     if (cartItem && cartItem.quantity >= product.stock) {
-      Alert.alert('Thông báo', 'Đã đạt số lượng tối đa trong kho');
+      showAlert('Thông báo', 'Đã đạt số lượng tối đa trong kho');
       return;
     }
 
@@ -95,34 +95,31 @@ export default function ClientHome() {
       productId: product.id,
       name: product.name,
       price: product.price,
-      imageUrl: product.imageUrl, // ===== FIX =====
+      imageUrl: product.imageUrl,
       category: product.category,
       stock: product.stock,
     });
 
-    Alert.alert('Thành công', `Đã thêm "${product.name}" vào giỏ hàng`);
+    showAlert('Thành công', `Đã thêm "${product.name}" vào giỏ hàng`);
   };
 
   const handleProductPress = (productId: string) => {
     router.push(`/client/product/${productId}`);
   };
 
-  const handleLogout = async () => {
-    Alert.alert('Đăng xuất', 'Bạn có chắc muốn đăng xuất?', [
-      { text: 'Hủy', style: 'cancel' },
-      {
-        text: 'Đăng xuất',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await logout();
-            router.replace('/auth/login');
-          } catch (error) {
-            Alert.alert('Lỗi', 'Không thể đăng xuất');
-          }
-        },
-      },
-    ]);
+  const handleLogout = () => {
+    showConfirmDialog(
+      'Đăng xuất',
+      'Bạn có chắc muốn đăng xuất?',
+      async () => {
+        try {
+          await logout();
+          router.replace('/auth/login');
+        } catch (error) {
+          showAlert('Lỗi', 'Không thể đăng xuất');
+        }
+      }
+    );
   };
 
   const formatPrice = (price: number) =>
@@ -158,11 +155,7 @@ export default function ClientHome() {
 
   return (
     <View style={styles.container}>
-      {/* Header */}
-      <LinearGradient
-        colors={['#667eea', '#764ba2']}
-        style={styles.header}
-      >
+      <LinearGradient colors={['#667eea', '#764ba2']} style={styles.header}>
         <View style={styles.headerContent}>
           <View>
             <Text style={styles.greeting}>Xin chào! 👋</Text>
@@ -181,7 +174,6 @@ export default function ClientHome() {
           </View>
         </View>
 
-        {/* Search Bar */}
         <TouchableOpacity 
           style={styles.searchBar} 
           onPress={() => router.push('/client/products')}
@@ -201,7 +193,6 @@ export default function ClientHome() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#667eea']} />
         }
       >
-        {/* Banner */}
         <View style={styles.bannerContainer}>
           <LinearGradient
             colors={['#667eea', '#764ba2']}
@@ -226,7 +217,6 @@ export default function ClientHome() {
           </LinearGradient>
         </View>
 
-        {/* Categories */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Danh mục sản phẩm</Text>
           <View style={styles.categoriesGrid}>
@@ -248,7 +238,6 @@ export default function ClientHome() {
           </View>
         </View>
 
-        {/* Featured Products */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <View>
@@ -292,9 +281,9 @@ export default function ClientHome() {
                   activeOpacity={0.7}
                 >
                   <View style={styles.productImageContainer}>
-                    {product.imageUrl  ? (
+                    {product.imageUrl ? (
                       <Image 
-                        source={{ uri: product.imageUrl  }}
+                        source={{ uri: product.imageUrl }}
                         style={styles.productImage}
                         resizeMode="cover"
                       />
@@ -303,11 +292,6 @@ export default function ClientHome() {
                         <Text style={styles.productPlaceholderIcon}>
                           {getCategoryIcon(product.category)}
                         </Text>
-                      </View>
-                    )}
-                    {product.stock <= 5 && product.stock > 0 && (
-                      <View style={styles.lowStockBadge}>
-                        <Text style={styles.lowStockText}>Sắp hết</Text>
                       </View>
                     )}
                     {product.stock === 0 && (
@@ -359,7 +343,6 @@ export default function ClientHome() {
           )}
         </View>
 
-        {/* Quick Actions */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Tiện ích nhanh</Text>
           <View style={styles.quickActions}>
@@ -385,7 +368,7 @@ export default function ClientHome() {
 
             <TouchableOpacity 
               style={styles.actionCard}
-              onPress={() => Alert.alert('Khuyến mãi', 'Tính năng đang phát triển')}
+              onPress={() => showAlert('Khuyến mãi', 'Tính năng đang phát triển')}
             >
               <View style={[styles.actionIconContainer, { backgroundColor: '#FFF3E0' }]}>
                 <Ionicons name="pricetag-outline" size={28} color="#FFA726" />
@@ -395,7 +378,7 @@ export default function ClientHome() {
 
             <TouchableOpacity 
               style={styles.actionCard}
-              onPress={() => Alert.alert('Hỗ trợ', 'Liên hệ: 1900 1234')}
+              onPress={() => showAlert('Hỗ trợ', 'Liên hệ: 1900 1234')}
             >
               <View style={[styles.actionIconContainer, { backgroundColor: '#E8F5E9' }]}>
                 <Ionicons name="chatbubble-outline" size={28} color="#43A047" />
@@ -405,7 +388,6 @@ export default function ClientHome() {
           </View>
         </View>
 
-        {/* Info Banner */}
         <View style={styles.section}>
           <View style={styles.infoCard}>
             <Ionicons name="information-circle" size={24} color="#667eea" />
@@ -423,358 +405,65 @@ export default function ClientHome() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f5f6fa',
-  },
-  header: {
-    paddingTop: 50,
-    paddingBottom: 20,
-    paddingHorizontal: 20,
-  },
-  headerContent: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  greeting: {
-    color: 'rgba(255,255,255,0.9)',
-    fontSize: 14,
-  },
-  userName: {
-    color: 'white',
-    fontSize: 24,
-    fontWeight: '700',
-    marginTop: 4,
-  },
-  headerActions: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  headerButton: {
-    width: 40,
-    height: 40,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  searchBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 12,
-    gap: 10,
-  },
-  searchPlaceholder: {
-    flex: 1,
-    color: '#95a5a6',
-    fontSize: 15,
-  },
-  searchIcon: {
-    width: 32,
-    height: 32,
-    backgroundColor: '#f5f6fa',
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  content: {
-    flex: 1,
-  },
-  bannerContainer: {
-    padding: 20,
-    paddingBottom: 10,
-  },
-  banner: {
-    borderRadius: 16,
-    padding: 20,
-    minHeight: 140,
-  },
-  bannerContent: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  bannerTitle: {
-    color: 'white',
-    fontSize: 24,
-    fontWeight: '700',
-    marginBottom: 8,
-  },
-  bannerSubtitle: {
-    color: 'rgba(255,255,255,0.9)',
-    fontSize: 14,
-    marginBottom: 16,
-    lineHeight: 20,
-  },
-  bannerButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'white',
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 10,
-    alignSelf: 'flex-start',
-    gap: 6,
-  },
-  bannerButtonText: {
-    color: '#667eea',
-    fontWeight: '700',
-    fontSize: 14,
-  },
-  bannerEmoji: {
-    fontSize: 60,
-    opacity: 0.9,
-  },
-  section: {
-    paddingHorizontal: 20,
-    marginBottom: 20,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#1a1a1a',
-  },
-  sectionSubtitle: {
-    fontSize: 13,
-    color: '#999',
-    marginTop: 2,
-  },
-  seeAllButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  seeAll: {
-    color: '#667eea',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  categoriesGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-  },
-  categoryCard: {
-    width: '48%',
-    borderRadius: 12,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  categoryGradient: {
-    padding: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 100,
-  },
-  categoryIcon: {
-    fontSize: 36,
-    marginBottom: 8,
-  },
-  categoryName: {
-    color: 'white',
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  loadingContainer: {
-    alignItems: 'center',
-    paddingVertical: 40,
-  },
-  loadingText: {
-    marginTop: 12,
-    color: '#999',
-    fontSize: 14,
-  },
-  emptyContainer: {
-    alignItems: 'center',
-    paddingVertical: 40,
-  },
-  emptyIcon: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: '#f5f6fa',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  emptyTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#1a1a1a',
-    marginBottom: 4,
-  },
-  emptyText: {
-    color: '#999',
-    fontSize: 14,
-  },
-  productsScroll: {
-    marginHorizontal: -20,
-  },
-  productsScrollContent: {
-    paddingHorizontal: 20,
-    gap: 12,
-  },
-  productCard: {
-    backgroundColor: 'white',
-    borderRadius: 16,
-    width: 170,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-    overflow: 'hidden',
-  },
-  productImageContainer: {
-    position: 'relative',
-  },
-  productImage: {
-    width: '100%',
-    height: 140,
-    backgroundColor: '#f5f6fa',
-  },
-  productPlaceholder: {
-    width: '100%',
-    height: 140,
-    backgroundColor: '#f5f6fa',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  productPlaceholderIcon: {
-    fontSize: 50,
-  },
-  lowStockBadge: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    backgroundColor: '#FFA726',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  lowStockText: {
-    color: 'white',
-    fontSize: 10,
-    fontWeight: '700',
-  },
-  outOfStockBadge: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    backgroundColor: '#EF5350',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  outOfStockText: {
-    color: 'white',
-    fontSize: 10,
-    fontWeight: '700',
-  },
-  productInfo: {
-    padding: 12,
-  },
-  productCategory: {
-    fontSize: 11,
-    color: '#999',
-    marginBottom: 4,
-  },
-  productName: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#1a1a1a',
-    marginBottom: 8,
-    minHeight: 36,
-  },
-  productFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-end',
-  },
-  productPrice: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#667eea',
-    marginBottom: 2,
-  },
-  productStock: {
-    fontSize: 11,
-    color: '#999',
-  },
-  addToCartIconButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#667eea',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  addToCartIconButtonDisabled: {
-    backgroundColor: '#bdc3c7',
-  },
-  quickActions: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  actionCard: {
-    flex: 1,
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 2,
-  },
-  actionIconContainer: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  actionText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#1a1a1a',
-    textAlign: 'center',
-  },
-  infoCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#E3F2FD',
-    borderRadius: 12,
-    padding: 16,
-    gap: 12,
-  },
-  infoContent: {
-    flex: 1,
-  },
-  infoTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#667eea',
-    marginBottom: 2,
-  },
-  infoText: {
-    fontSize: 13,
-    color: '#999',
-  },
+  container: { flex: 1, backgroundColor: '#f5f6fa' },
+  header: { paddingTop: 50, paddingBottom: 20, paddingHorizontal: 20 },
+  headerContent: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+  greeting: { color: 'rgba(255,255,255,0.9)', fontSize: 14 },
+  userName: { color: 'white', fontSize: 24, fontWeight: '700', marginTop: 4 },
+  headerActions: { flexDirection: 'row', gap: 8 },
+  headerButton: { width: 40, height: 40, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
+  searchBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'white', borderRadius: 12, padding: 12, gap: 10 },
+  searchPlaceholder: { flex: 1, color: '#95a5a6', fontSize: 15 },
+  searchIcon: { width: 32, height: 32, backgroundColor: '#f5f6fa', borderRadius: 8, justifyContent: 'center', alignItems: 'center' },
+  content: { flex: 1 },
+  bannerContainer: { padding: 20, paddingBottom: 10 },
+  banner: { borderRadius: 16, padding: 20, minHeight: 140 },
+  bannerContent: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  bannerTitle: { color: 'white', fontSize: 24, fontWeight: '700', marginBottom: 8 },
+  bannerSubtitle: { color: 'rgba(255,255,255,0.9)', fontSize: 14, marginBottom: 16, lineHeight: 20 },
+  bannerButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'white', paddingVertical: 10, paddingHorizontal: 16, borderRadius: 10, alignSelf: 'flex-start', gap: 6 },
+  bannerButtonText: { color: '#667eea', fontWeight: '700', fontSize: 14 },
+  bannerEmoji: { fontSize: 60, opacity: 0.9 },
+  section: { paddingHorizontal: 20, marginBottom: 20 },
+  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
+  sectionTitle: { fontSize: 20, fontWeight: '700', color: '#1a1a1a' },
+  sectionSubtitle: { fontSize: 13, color: '#999', marginTop: 2 },
+  seeAllButton: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  seeAll: { color: '#667eea', fontSize: 14, fontWeight: '600' },
+  categoriesGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  categoryCard: { width: '48%', borderRadius: 12, overflow: 'hidden', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 3 },
+  categoryGradient: { padding: 20, alignItems: 'center', justifyContent: 'center', minHeight: 100 },
+  categoryIcon: { fontSize: 36, marginBottom: 8 },
+  categoryName: { color: 'white', fontSize: 15, fontWeight: '600' },
+  loadingContainer: { alignItems: 'center', paddingVertical: 40 },
+  loadingText: { marginTop: 12, color: '#999', fontSize: 14 },
+  emptyContainer: { alignItems: 'center', paddingVertical: 40 },
+  emptyIcon: { width: 100, height: 100, borderRadius: 50, backgroundColor: '#f5f6fa', justifyContent: 'center', alignItems: 'center', marginBottom: 16 },
+  emptyTitle: { fontSize: 18, fontWeight: '700', color: '#1a1a1a', marginBottom: 4 },
+  emptyText: { color: '#999', fontSize: 14 },
+  productsScroll: { marginHorizontal: -20 },
+  productsScrollContent: { paddingHorizontal: 20, gap: 12 },
+  productCard: { backgroundColor: 'white', borderRadius: 16, width: 170, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 3, overflow: 'hidden' },
+  productImageContainer: { position: 'relative' },
+  productImage: { width: '100%', height: 140, backgroundColor: '#f5f6fa' },
+  productPlaceholder: { width: '100%', height: 140, backgroundColor: '#f5f6fa', justifyContent: 'center', alignItems: 'center' },
+  productPlaceholderIcon: { fontSize: 50 },
+  outOfStockBadge: { position: 'absolute', top: 8, right: 8, backgroundColor: '#EF5350', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+  outOfStockText: { color: 'white', fontSize: 10, fontWeight: '700' },
+  productInfo: { padding: 12 },
+  productCategory: { fontSize: 11, color: '#999', marginBottom: 4 },
+  productName: { fontSize: 14, fontWeight: '600', color: '#1a1a1a', marginBottom: 8, minHeight: 36 },
+  productFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' },
+  productPrice: { fontSize: 16, fontWeight: '700', color: '#667eea', marginBottom: 2 },
+  productStock: { fontSize: 11, color: '#999' },
+  addToCartIconButton: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#667eea', justifyContent: 'center', alignItems: 'center' },
+  addToCartIconButtonDisabled: { backgroundColor: '#bdc3c7' },
+  quickActions: { flexDirection: 'row', gap: 12 },
+  actionCard: { flex: 1, backgroundColor: 'white', borderRadius: 12, padding: 16, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 3, elevation: 2 },
+  actionIconContainer: { width: 50, height: 50, borderRadius: 25, justifyContent: 'center', alignItems: 'center', marginBottom: 8 },
+  actionText: { fontSize: 12, fontWeight: '600', color: '#1a1a1a', textAlign: 'center' },
+  infoCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#E3F2FD', borderRadius: 12, padding: 16, gap: 12 },
+  infoContent: { flex: 1 },
+  infoTitle: { fontSize: 15, fontWeight: '700', color: '#667eea', marginBottom: 2 },
+  infoText: { fontSize: 13, color: '#999' },
 });
