@@ -1,92 +1,238 @@
-// app/client/checkout.tsx - ✅ FIXED WITH CROSS-PLATFORM ALERTS
-import { useState } from 'react';
-import { View, Text, ScrollView, TextInput, TouchableOpacity, StyleSheet } from 'react-native';
+// app/client/checkout.tsx - 🎨 REDESIGNED with Voucher Integration
+import { useState, useEffect } from 'react';
+import { View, Text, ScrollView, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Platform } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useCart } from '@/contexts/CartContext';
-import { createOrder, generateOrderNumber } from '@/firebase/orderService';
-import { auth } from '@/config/firebase';
+import { createOrder, generateOrderNumber, updateOrderStatus } from '@/firebase/orderService';
+import { auth, db } from '@/config/firebase';
+import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
 import { Order } from '@/types/order';
-import { showAlert, showAlertWithOptions, showConfirmDialog } from '@/utils/platformAlert';
+import { PaymentMethod } from '@/types/payment';
+import { showAlert, showAlertWithOptions } from '@/utils/platformAlert';
+import { createPayment, generateMockQRCode, simulatePaymentProcessing } from '@/services/paymentService';
+import PaymentMethodSelector from '@/components/payment/PaymentMethodSelector';
+import QRPaymentModal from '@/components/payment/QRPaymentModal';
+import PaymentStatusModal from '@/components/payment/PaymentStatusModal';
+import VoucherInput from '@/components/voucher/VoucherInput';
+import { ApplyVoucherResponse, confirmVoucherUsage } from '@/services/voucherService';
 
 const FREE_SHIPPING_THRESHOLD = 200000;
 const SHIPPING_FEE = 30000;
 
-export default function CheckoutScreen() {
-  const { items, getTotal, clearCart } = useCart();
-  const user = auth.currentUser;
+interface SavedAddress {
+  id: string;
+  name: string;
+  phone: string;
+  address: string;
+  isDefault: boolean;
+}
 
-  const [customerName, setCustomerName] = useState(user?.displayName || '');
+export default function CheckoutScreen() {
+  const { items, getTotal, clearCart, getItemCount } = useCart();
+  const user = auth.currentUser;
+  const itemCount = getItemCount();
+
+  // Form state
+  const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [address, setAddress] = useState('');
   const [note, setNote] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'transfer' | 'card'>('cash');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cod');
   const [loading, setLoading] = useState(false);
+  const [loadingProfile, setLoadingProfile] = useState(true);
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
+  // Voucher state
+  const [appliedVoucher, setAppliedVoucher] = useState<{
+    code: string;
+    discountAmount: number;
+    voucherId?: string;
+  } | null>(null);
+
+  // Saved addresses
+  const [savedAddresses, setSavedAddresses] = useState<SavedAddress[]>([]);
+  const [showAddressPicker, setShowAddressPicker] = useState(false);
+
+  // Payment modals
+  const [showQRModal, setShowQRModal] = useState(false);
+  const [showStatusModal, setShowStatusModal] = useState(false);
+  const [paymentSuccess, setPaymentSuccess] = useState(false);
+  const [paymentMessage, setPaymentMessage] = useState('');
+  const [currentPayment, setCurrentPayment] = useState<{
+    id: string;
+    transactionId: string;
+    qrCodeUrl: string;
+    orderId: string;
+  } | null>(null);
+
+  useEffect(() => {
+    loadUserProfile();
+  }, [user]);
+
+  const loadUserProfile = async () => {
+    if (!user) {
+      setLoadingProfile(false);
+      return;
+    }
+
+    setLoadingProfile(true);
+    try {
+      let userName = user.displayName || '';
+      let userPhone = '';
+      
+      const userDoc = await getDoc(doc(db, 'users', user.uid));
+      if (userDoc.exists()) {
+        const userData = userDoc.data();
+        userName = userData.displayName || user.displayName || '';
+        userPhone = userData.phone || '';
+      }
+      
+      setCustomerName(userName);
+      setCustomerPhone(userPhone);
+
+      const addressQuery = query(
+        collection(db, 'addresses'),
+        where('userId', '==', user.uid)
+      );
+      const addressSnapshot = await getDocs(addressQuery);
+      
+      const addresses: SavedAddress[] = [];
+      addressSnapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        if (!data.deleted) {
+          addresses.push({
+            id: docSnap.id,
+            name: data.name || '',
+            phone: data.phone || '',
+            address: data.address || '',
+            isDefault: data.isDefault || false,
+          });
+        }
+      });
+
+      setSavedAddresses(addresses);
+
+      const defaultAddress = addresses.find((addr) => addr.isDefault);
+      if (defaultAddress) {
+        if (!userName) setCustomerName(defaultAddress.name);
+        if (!userPhone) setCustomerPhone(defaultAddress.phone);
+        setAddress(defaultAddress.address);
+      } else if (addresses.length > 0) {
+        if (!userName) setCustomerName(addresses[0].name);
+        if (!userPhone) setCustomerPhone(addresses[0].phone);
+        setAddress(addresses[0].address);
+      }
+    } catch (error) {
+      console.error('Error loading profile:', error);
+      setCustomerName(user.displayName || '');
+    } finally {
+      setLoadingProfile(false);
+    }
   };
+
+  const handleSelectAddress = (addr: SavedAddress) => {
+    setCustomerName(addr.name);
+    setCustomerPhone(addr.phone);
+    setAddress(addr.address);
+    setShowAddressPicker(false);
+  };
+
+  // Voucher handlers
+  const handleVoucherApplied = (response: ApplyVoucherResponse) => {
+    if (response.success && response.voucher) {
+      setAppliedVoucher({
+        code: 'code' in response.voucher ? response.voucher.code : response.voucher.voucherCode,
+        discountAmount: response.discountAmount,
+        voucherId: response.voucher.id,
+      });
+      showAlert('Thành công', `Đã áp dụng mã giảm ${formatPrice(response.discountAmount)}`);
+    }
+  };
+
+  const handleRemoveVoucher = () => {
+    setAppliedVoucher(null);
+  };
+
+  const formatPrice = (amount: number) => new Intl.NumberFormat('vi-VN').format(amount) + 'đ';
 
   const subtotal = getTotal();
   const shipping = subtotal >= FREE_SHIPPING_THRESHOLD ? 0 : SHIPPING_FEE;
-  const discount = 0;
-  const total = subtotal + shipping - discount;
+  const discount = appliedVoucher?.discountAmount || 0;
+  const total = Math.max(0, subtotal + shipping - discount);
+
+  const validateForm = (): boolean => {
+    if (!customerName.trim()) { showAlert('Lỗi', 'Vui lòng nhập tên'); return false; }
+    if (!customerPhone.trim()) { showAlert('Lỗi', 'Vui lòng nhập số điện thoại'); return false; }
+    if (!address.trim()) { showAlert('Lỗi', 'Vui lòng nhập địa chỉ giao hàng'); return false; }
+    if (items.length === 0) { showAlert('Lỗi', 'Giỏ hàng trống'); return false; }
+    return true;
+  };
 
   const handlePlaceOrder = async () => {
-    if (!customerName.trim()) {
-      showAlert('Lỗi', 'Vui lòng nhập tên');
-      return;
-    }
-    if (!customerPhone.trim()) {
-      showAlert('Lỗi', 'Vui lòng nhập số điện thoại');
-      return;
-    }
-    if (!address.trim()) {
-      showAlert('Lỗi', 'Vui lòng nhập địa chỉ giao hàng');
-      return;
-    }
-    if (items.length === 0) {
-      showAlert('Lỗi', 'Giỏ hàng trống');
-      return;
-    }
-
+    if (!validateForm()) return;
     setLoading(true);
 
     try {
+      const orderNumber = generateOrderNumber();
       const orderData: Omit<Order, 'id' | 'createdAt' | 'updatedAt'> = {
-        orderNumber: generateOrderNumber(),
-        customerId: user?.uid,
+        orderNumber,
+        customerId: user?.uid || '',
         customerName,
         customerPhone,
         address,
         items: items.map((item) => ({
           productId: item.productId,
           productName: item.name,
-          productImage: item.imageUrl,
+          productImage: item.imageUrl || '',
           quantity: item.quantity,
           price: item.price,
           total: item.price * item.quantity,
         })),
         subtotal,
+        shipping,
         discount,
+        voucherCode: appliedVoucher?.code || '',
         total,
-        paymentMethod,
+        paymentMethod: paymentMethod === 'cod' ? 'cash' : 'transfer',
         status: 'pending',
-        note: note || undefined,
+        note: note || '',
       };
 
       const orderId = await createOrder(orderData);
-      clearCart();
 
-      showAlertWithOptions(
-        'Đặt hàng thành công! ',
-        'Đơn hàng của bạn đã được ghi nhận',
-        [
-          { text: 'Về trang chủ', onPress: () => router.replace('/client') },
-          { text: 'Xem đơn hàng', onPress: () => router.replace(`/client/order/${orderId}`) },
-        ]
-      );
+      // Confirm voucher usage if applied
+      if (appliedVoucher && user) {
+        await confirmVoucherUsage(
+          user.uid,
+          appliedVoucher.code,
+          orderId,
+          orderNumber,
+          appliedVoucher.discountAmount,
+          total
+        );
+      }
+
+      if (paymentMethod === 'cod') {
+        clearCart();
+        showAlertWithOptions(
+          'Đặt hàng thành công! 🎉',
+          `Mã đơn: ${orderNumber}\n${appliedVoucher ? `Đã giảm: ${formatPrice(discount)}` : ''}`,
+          [
+            { text: 'Về trang chủ', onPress: () => router.replace('/client' as any) },
+            { text: 'Xem đơn hàng', onPress: () => router.replace(`/client/order/${orderId}` as any) },
+          ]
+        );
+      } else {
+        const payment = await createPayment(orderId, orderNumber, user?.uid || '', total, paymentMethod);
+        if (payment) {
+          const qrCodeUrl = generateMockQRCode(paymentMethod, total, payment.transactionId || '');
+          setCurrentPayment({ id: payment.id!, transactionId: payment.transactionId || '', qrCodeUrl, orderId });
+          setShowQRModal(true);
+        } else {
+          showAlert('Lỗi', 'Không thể tạo thanh toán.');
+        }
+      }
     } catch (error: any) {
       showAlert('Lỗi', error.message || 'Không thể đặt hàng');
     } finally {
@@ -94,193 +240,296 @@ export default function CheckoutScreen() {
     }
   };
 
+  const handleConfirmPayment = async () => {
+    if (!currentPayment) return;
+    const result = await simulatePaymentProcessing(currentPayment.id, true);
+    setShowQRModal(false);
+    setPaymentSuccess(result.success);
+    setPaymentMessage(result.success ? 'Cảm ơn bạn đã mua hàng!' : 'Thanh toán không thành công.');
+    if (result.success) {
+      await updateOrderStatus(currentPayment.orderId, 'confirmed');
+      clearCart();
+    }
+    setShowStatusModal(true);
+  };
+
+  const handleCancelPayment = () => {
+    setShowQRModal(false);
+    showAlert('Đã hủy', 'Bạn đã hủy thanh toán.');
+  };
+
+  if (loadingProfile) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#22C55E" />
+        <Text style={styles.loadingText}>Đang tải thông tin...</Text>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
-      <LinearGradient colors={['#667eea', '#764ba2']} style={styles.header}>
+      {/* Header */}
+      <LinearGradient colors={['#22C55E', '#16A34A']} style={styles.header}>
         <View style={styles.headerContent}>
           <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
             <Ionicons name="arrow-back" size={24} color="white" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Thanh toán</Text>
+          <View style={styles.headerCenter}>
+            <Text style={styles.headerTitle}>Thanh toán</Text>
+            <Text style={styles.headerSubtitle}>{itemCount} sản phẩm</Text>
+          </View>
           <View style={{ width: 40 }} />
         </View>
       </LinearGradient>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {/* Customer Info */}
+        {/* Delivery Info */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Thông tin người nhận</Text>
-
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>
-              Họ tên <Text style={styles.required}>*</Text>
-            </Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Nhập họ tên"
-              placeholderTextColor="#999"
-              value={customerName}
-              onChangeText={setCustomerName}
-            />
+          <View style={styles.sectionHeader}>
+            <View style={styles.sectionTitleRow}>
+              <View style={[styles.sectionIcon, { backgroundColor: '#DCFCE7' }]}>
+                <Ionicons name="location" size={20} color="#22C55E" />
+              </View>
+              <Text style={styles.sectionTitle}>Thông tin giao hàng</Text>
+            </View>
+            {savedAddresses.length > 0 && (
+              <TouchableOpacity style={styles.changeBtn} onPress={() => setShowAddressPicker(true)}>
+                <Text style={styles.changeBtnText}>Đổi</Text>
+              </TouchableOpacity>
+            )}
           </View>
 
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>
-              Số điện thoại <Text style={styles.required}>*</Text>
-            </Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Nhập số điện thoại"
-              placeholderTextColor="#999"
-              keyboardType="phone-pad"
-              value={customerPhone}
-              onChangeText={setCustomerPhone}
-            />
+            <Text style={styles.label}>Họ tên <Text style={styles.required}>*</Text></Text>
+            <TextInput style={styles.input} placeholder="Nhập họ tên" placeholderTextColor="#9CA3AF" value={customerName} onChangeText={setCustomerName} />
           </View>
 
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>
-              Địa chỉ giao hàng <Text style={styles.required}>*</Text>
-            </Text>
-            <TextInput
-              style={[styles.input, styles.textArea]}
-              placeholder="Nhập địa chỉ giao hàng"
-              placeholderTextColor="#999"
-              multiline
-              numberOfLines={3}
-              value={address}
-              onChangeText={setAddress}
-            />
+            <Text style={styles.label}>Số điện thoại <Text style={styles.required}>*</Text></Text>
+            <TextInput style={styles.input} placeholder="Nhập số điện thoại" placeholderTextColor="#9CA3AF" keyboardType="phone-pad" value={customerPhone} onChangeText={setCustomerPhone} />
+          </View>
+
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Địa chỉ <Text style={styles.required}>*</Text></Text>
+            <TextInput style={[styles.input, styles.textArea]} placeholder="Nhập địa chỉ giao hàng" placeholderTextColor="#9CA3AF" multiline numberOfLines={3} value={address} onChangeText={setAddress} />
           </View>
 
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Ghi chú</Text>
-            <TextInput
-              style={[styles.input, styles.textArea]}
-              placeholder="Ghi chú đơn hàng (tùy chọn)"
-              placeholderTextColor="#999"
-              multiline
-              numberOfLines={2}
-              value={note}
-              onChangeText={setNote}
-            />
+            <TextInput style={[styles.input, styles.textArea]} placeholder="Ghi chú cho shop (tùy chọn)" placeholderTextColor="#9CA3AF" multiline numberOfLines={2} value={note} onChangeText={setNote} />
           </View>
+        </View>
+
+        {/* Voucher Section - NEW */}
+        <View style={styles.section}>
+          <View style={styles.sectionTitleRow}>
+            <View style={[styles.sectionIcon, { backgroundColor: '#FFEDD5' }]}>
+              <Ionicons name="ticket" size={20} color="#F97316" />
+            </View>
+            <Text style={styles.sectionTitle}>Mã giảm giá</Text>
+          </View>
+          
+          <VoucherInput
+            orderSubtotal={subtotal}
+            items={items.map(item => ({
+              productId: item.productId,
+              category: item.category,
+              quantity: item.quantity,
+              price: item.price,
+            }))}
+            onVoucherApplied={handleVoucherApplied}
+            appliedVoucher={appliedVoucher}
+            onRemoveVoucher={handleRemoveVoucher}
+          />
+
+          {/* Quick access to voucher list */}
+          <TouchableOpacity 
+            style={styles.viewVouchersBtn}
+            onPress={() => router.push('/client/vouchers')}
+          >
+            <Ionicons name="gift-outline" size={18} color="#22C55E" />
+            <Text style={styles.viewVouchersBtnText}>Xem voucher của bạn</Text>
+            <Ionicons name="chevron-forward" size={16} color="#22C55E" />
+          </TouchableOpacity>
         </View>
 
         {/* Payment Method */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Phương thức thanh toán</Text>
-
-          <View style={styles.paymentMethods}>
-            <TouchableOpacity
-              style={[styles.paymentMethod, paymentMethod === 'cash' && styles.paymentMethodActive]}
-              onPress={() => setPaymentMethod('cash')}
-            >
-              <Ionicons name="cash-outline" size={24} color={paymentMethod === 'cash' ? '#667eea' : '#999'} />
-              <Text style={[styles.paymentText, paymentMethod === 'cash' && styles.paymentTextActive]}>
-                Tiền mặt
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.paymentMethod, paymentMethod === 'transfer' && styles.paymentMethodActive]}
-              onPress={() => setPaymentMethod('transfer')}
-            >
-              <Ionicons name="card-outline" size={24} color={paymentMethod === 'transfer' ? '#667eea' : '#999'} />
-              <Text style={[styles.paymentText, paymentMethod === 'transfer' && styles.paymentTextActive]}>
-                Chuyển khoản
-              </Text>
-            </TouchableOpacity>
+          <View style={styles.sectionTitleRow}>
+            <View style={[styles.sectionIcon, { backgroundColor: '#FEF3C7' }]}>
+              <Ionicons name="card" size={20} color="#F59E0B" />
+            </View>
+            <Text style={styles.sectionTitle}>Phương thức thanh toán</Text>
           </View>
+          <PaymentMethodSelector selected={paymentMethod} onSelect={setPaymentMethod} />
         </View>
 
-        {/* Order Summary */}
+        {/* Order Items */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Đơn hàng ({items.length} sản phẩm)</Text>
+          <View style={styles.sectionTitleRow}>
+            <View style={[styles.sectionIcon, { backgroundColor: '#DBEAFE' }]}>
+              <Ionicons name="receipt" size={20} color="#3B82F6" />
+            </View>
+            <Text style={styles.sectionTitle}>Đơn hàng ({items.length})</Text>
+          </View>
 
           {items.map((item) => (
             <View key={item.id} style={styles.orderItem}>
-              <Text style={styles.itemName} numberOfLines={1}>
-                {item.name}
-              </Text>
-              <Text style={styles.itemDetail}>
-                {formatCurrency(item.price)} x {item.quantity}
-              </Text>
-              <Text style={styles.itemTotal}>{formatCurrency(item.price * item.quantity)}</Text>
+              <View style={styles.orderItemInfo}>
+                <Text style={styles.orderItemName} numberOfLines={1}>{item.name}</Text>
+                <Text style={styles.orderItemQty}>x{item.quantity}</Text>
+              </View>
+              <Text style={styles.orderItemPrice}>{formatPrice(item.price * item.quantity)}</Text>
             </View>
           ))}
         </View>
 
-        <View style={{ height: 200 }} />
+        <View style={{ height: 220 }} />
       </ScrollView>
 
       {/* Bottom Summary */}
       <View style={styles.bottomSummary}>
         <View style={styles.summaryRow}>
-          <Text style={styles.summaryLabel}>Tạm tính:</Text>
-          <Text style={styles.summaryValue}>{formatCurrency(subtotal)}</Text>
+          <Text style={styles.summaryLabel}>Tạm tính</Text>
+          <Text style={styles.summaryValue}>{formatPrice(subtotal)}</Text>
         </View>
         <View style={styles.summaryRow}>
-          <Text style={styles.summaryLabel}>Phí vận chuyển:</Text>
-          {shipping === 0 ? (
-            <Text style={[styles.summaryValue, { color: '#43A047', fontWeight: '700' }]}>Miễn phí</Text>
-          ) : (
-            <Text style={styles.summaryValue}>{formatCurrency(shipping)}</Text>
-          )}
+          <Text style={styles.summaryLabel}>Phí vận chuyển</Text>
+          <Text style={[styles.summaryValue, shipping === 0 && { color: '#22C55E' }]}>
+            {shipping === 0 ? 'Miễn phí' : formatPrice(shipping)}
+          </Text>
         </View>
         {discount > 0 && (
           <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Giảm giá:</Text>
-            <Text style={[styles.summaryValue, { color: '#e74c3c' }]}>-{formatCurrency(discount)}</Text>
+            <View style={styles.discountRow}>
+              <Ionicons name="ticket" size={16} color="#F97316" />
+              <Text style={styles.discountLabel}>Giảm giá</Text>
+            </View>
+            <Text style={styles.discountValue}>-{formatPrice(discount)}</Text>
           </View>
         )}
         <View style={styles.divider} />
         <View style={styles.summaryRow}>
-          <Text style={styles.totalLabel}>Tổng cộng:</Text>
-          <Text style={styles.totalValue}>{formatCurrency(total)}</Text>
+          <Text style={styles.totalLabel}>Tổng cộng</Text>
+          <Text style={styles.totalValue}>{formatPrice(total)}</Text>
         </View>
 
-        <TouchableOpacity style={styles.placeOrderBtn} onPress={handlePlaceOrder} disabled={loading}>
-          <LinearGradient colors={['#667eea', '#764ba2']} style={styles.placeOrderGradient}>
-            <Text style={styles.placeOrderText}>{loading ? 'Đang xử lý...' : 'Đặt hàng'}</Text>
+        <TouchableOpacity style={[styles.placeOrderBtn, loading && styles.placeOrderBtnDisabled]} onPress={handlePlaceOrder} disabled={loading}>
+          <LinearGradient colors={['#22C55E', '#16A34A']} style={styles.placeOrderGradient}>
+            {loading ? <ActivityIndicator color="#fff" /> : (
+              <>
+                <Text style={styles.placeOrderText}>{paymentMethod === 'cod' ? 'Đặt hàng' : 'Thanh toán'}</Text>
+                <Ionicons name="arrow-forward" size={20} color="#fff" />
+              </>
+            )}
           </LinearGradient>
         </TouchableOpacity>
       </View>
+
+      {/* Address Picker Modal */}
+      {showAddressPicker && (
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Chọn địa chỉ</Text>
+              <TouchableOpacity onPress={() => setShowAddressPicker(false)}>
+                <Ionicons name="close" size={24} color="#6B7280" />
+              </TouchableOpacity>
+            </View>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {savedAddresses.map((addr) => (
+                <TouchableOpacity key={addr.id} style={[styles.addressCard, address === addr.address && styles.addressCardActive]} onPress={() => handleSelectAddress(addr)}>
+                  <View style={styles.addressCardHeader}>
+                    <Text style={styles.addressCardName}>{addr.name}</Text>
+                    {addr.isDefault && <View style={styles.defaultBadge}><Text style={styles.defaultBadgeText}>Mặc định</Text></View>}
+                  </View>
+                  <Text style={styles.addressCardPhone}>{addr.phone}</Text>
+                  <Text style={styles.addressCardText}>{addr.address}</Text>
+                  {address === addr.address && (
+                    <View style={styles.checkIcon}><Ionicons name="checkmark-circle" size={24} color="#22C55E" /></View>
+                  )}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      )}
+
+      {/* Payment Modals */}
+      {currentPayment && (
+        <QRPaymentModal visible={showQRModal} method={paymentMethod} amount={total} transactionId={currentPayment.transactionId} qrCodeUrl={currentPayment.qrCodeUrl} onClose={() => setShowQRModal(false)} onConfirmPayment={handleConfirmPayment} onCancel={handleCancelPayment} />
+      )}
+      <PaymentStatusModal visible={showStatusModal} success={paymentSuccess} message={paymentMessage} transactionId={currentPayment?.transactionId} onClose={() => setShowStatusModal(false)} onViewOrder={() => { setShowStatusModal(false); router.replace(`/client/order/${currentPayment?.orderId}` as any); }} onGoHome={() => { setShowStatusModal(false); router.replace('/client' as any); }} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f5f6fa' },
-  header: { paddingTop: 50, paddingBottom: 20, borderBottomLeftRadius: 25, borderBottomRightRadius: 25 },
-  headerContent: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20 },
-  backBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.2)', justifyContent: 'center', alignItems: 'center' },
-  headerTitle: { fontSize: 20, fontWeight: '700', color: 'white' },
-  content: { flex: 1 },
-  section: { backgroundColor: 'white', marginHorizontal: 20, marginTop: 16, padding: 16, borderRadius: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 4, elevation: 3 },
-  sectionTitle: { fontSize: 16, fontWeight: '700', color: '#1a1a1a', marginBottom: 16 },
-  inputGroup: { marginBottom: 16 },
-  label: { fontSize: 14, fontWeight: '600', color: '#1a1a1a', marginBottom: 8 },
-  required: { color: '#FF6B6B' },
-  input: { backgroundColor: '#f8f9fa', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12, fontSize: 15, color: '#1a1a1a', borderWidth: 1, borderColor: '#e0e0e0' },
+  container: { flex: 1, backgroundColor: '#F8FAFC' },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F8FAFC' },
+  loadingText: { marginTop: 12, fontSize: 14, color: '#6B7280' },
+
+  header: { paddingTop: Platform.OS === 'ios' ? 60 : 50, paddingBottom: 20, paddingHorizontal: 20, borderBottomLeftRadius: 24, borderBottomRightRadius: 24 },
+  headerContent: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  backBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.2)', justifyContent: 'center', alignItems: 'center' },
+  headerCenter: { alignItems: 'center' },
+  headerTitle: { fontSize: 20, fontWeight: '700', color: '#fff' },
+  headerSubtitle: { fontSize: 13, color: 'rgba(255,255,255,0.8)', marginTop: 2 },
+
+  content: { flex: 1, paddingHorizontal: 20, paddingTop: 20 },
+
+  section: { backgroundColor: '#fff', borderRadius: 16, padding: 16, marginBottom: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 },
+  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
+  sectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 },
+  sectionIcon: { width: 36, height: 36, borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
+  sectionTitle: { fontSize: 16, fontWeight: '700', color: '#1F2937' },
+  changeBtn: { backgroundColor: '#DCFCE7', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
+  changeBtnText: { fontSize: 13, fontWeight: '600', color: '#22C55E' },
+
+  inputGroup: { marginBottom: 14 },
+  label: { fontSize: 13, fontWeight: '600', color: '#4B5563', marginBottom: 6 },
+  required: { color: '#EF4444' },
+  input: { backgroundColor: '#F9FAFB', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: '#1F2937', borderWidth: 1, borderColor: '#E5E7EB' },
   textArea: { height: 80, textAlignVertical: 'top' },
-  paymentMethods: { flexDirection: 'row', gap: 12 },
-  paymentMethod: { flex: 1, alignItems: 'center', padding: 16, borderRadius: 12, backgroundColor: '#f8f9fa', borderWidth: 2, borderColor: '#e0e0e0' },
-  paymentMethodActive: { backgroundColor: '#E3F2FD', borderColor: '#667eea' },
-  paymentText: { fontSize: 13, color: '#999', marginTop: 8, fontWeight: '600' },
-  paymentTextActive: { color: '#667eea' },
-  orderItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, gap: 8 },
-  itemName: { flex: 1, fontSize: 14, color: '#1a1a1a' },
-  itemDetail: { fontSize: 13, color: '#666' },
-  itemTotal: { fontSize: 14, fontWeight: '600', color: '#667eea', minWidth: 80, textAlign: 'right' },
-  bottomSummary: { backgroundColor: 'white', padding: 20, borderTopLeftRadius: 24, borderTopRightRadius: 24, shadowColor: '#000', shadowOffset: { width: 0, height: -2 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 10 },
-  summaryRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
-  summaryLabel: { fontSize: 14, color: '#666' },
-  summaryValue: { fontSize: 14, fontWeight: '600', color: '#1a1a1a' },
-  divider: { height: 1, backgroundColor: '#e0e0e0', marginVertical: 8 },
-  totalLabel: { fontSize: 16, fontWeight: '700', color: '#1a1a1a' },
-  totalValue: { fontSize: 20, fontWeight: '700', color: '#667eea' },
-  placeOrderBtn: { marginTop: 16, borderRadius: 12, overflow: 'hidden', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 8 },
-  placeOrderGradient: { paddingVertical: 16, alignItems: 'center' },
-  placeOrderText: { fontSize: 17, fontWeight: '700', color: 'white' },
+
+  // Voucher
+  viewVouchersBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 12, paddingVertical: 10, backgroundColor: '#F0FDF4', borderRadius: 10 },
+  viewVouchersBtnText: { fontSize: 13, fontWeight: '600', color: '#22C55E' },
+
+  orderItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
+  orderItemInfo: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  orderItemName: { flex: 1, fontSize: 14, color: '#1F2937' },
+  orderItemQty: { fontSize: 13, color: '#6B7280', backgroundColor: '#F3F4F6', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 },
+  orderItemPrice: { fontSize: 14, fontWeight: '600', color: '#22C55E', marginLeft: 12 },
+
+  bottomSummary: { backgroundColor: '#fff', padding: 20, paddingBottom: Platform.OS === 'ios' ? 36 : 20, borderTopLeftRadius: 24, borderTopRightRadius: 24, shadowColor: '#000', shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.08, shadowRadius: 12, elevation: 10 },
+  summaryRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  summaryLabel: { fontSize: 14, color: '#6B7280' },
+  summaryValue: { fontSize: 14, fontWeight: '600', color: '#1F2937' },
+  discountRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  discountLabel: { fontSize: 14, color: '#F97316' },
+  discountValue: { fontSize: 14, fontWeight: '600', color: '#F97316' },
+  divider: { height: 1, backgroundColor: '#E5E7EB', marginVertical: 10 },
+  totalLabel: { fontSize: 16, fontWeight: '700', color: '#1F2937' },
+  totalValue: { fontSize: 22, fontWeight: '800', color: '#22C55E' },
+  placeOrderBtn: { marginTop: 16, borderRadius: 14, overflow: 'hidden' },
+  placeOrderBtnDisabled: { opacity: 0.6 },
+  placeOrderGradient: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', paddingVertical: 16, gap: 8 },
+  placeOrderText: { fontSize: 17, fontWeight: '700', color: '#fff' },
+
+  modalOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  modalContent: { backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, maxHeight: '70%' },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
+  modalTitle: { fontSize: 18, fontWeight: '700', color: '#1F2937' },
+
+  addressCard: { backgroundColor: '#F9FAFB', padding: 16, borderRadius: 14, marginBottom: 12, borderWidth: 2, borderColor: 'transparent', position: 'relative' },
+  addressCardActive: { borderColor: '#22C55E', backgroundColor: '#F0FDF4' },
+  addressCardHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
+  addressCardName: { fontSize: 15, fontWeight: '700', color: '#1F2937' },
+  defaultBadge: { backgroundColor: '#22C55E', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 },
+  defaultBadgeText: { fontSize: 10, fontWeight: '700', color: '#fff' },
+  addressCardPhone: { fontSize: 13, color: '#6B7280', marginBottom: 4 },
+  addressCardText: { fontSize: 14, color: '#1F2937', lineHeight: 20 },
+  checkIcon: { position: 'absolute', top: 16, right: 16 },
 });

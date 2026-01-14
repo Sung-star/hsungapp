@@ -1,293 +1,725 @@
-// app/client/change-password.tsx - Change Password Screen
+// app/client/change-password.tsx - Change Password with OTP Flow
 
-import { useState } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
-  TextInput,
-  TouchableOpacity,
   StyleSheet,
-  ActivityIndicator,
+  TouchableOpacity,
+  TextInput,
   ScrollView,
+  SafeAreaView,
+  KeyboardAvoidingView,
+  Platform,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { changePassword, validatePassword } from '@/services/passwordService';
-import { showAlert } from '@/utils/platformAlert';
+import { 
+  EmailAuthProvider, 
+  reauthenticateWithCredential, 
+  updatePassword 
+} from 'firebase/auth';
+import { auth } from '@/config/firebase';
+import { useOTP } from '@/hooks/useOTP';
+import OTPInput from '@/components/otp/OTPInput';
 
-export default function ChangePasswordScreen() {
+type Step = 'email' | 'otp' | 'password';
+
+const ChangePasswordScreen = () => {
   const router = useRouter();
-  const [currentPassword, setCurrentPassword] = useState('');
+  const { loading, error, countdown, canResend, sendOTP, verifyOTP, resetError } = useOTP();
+
+  // Form state
+  const [step, setStep] = useState<Step>('email');
+  const [email, setEmail] = useState(auth.currentUser?.email || '');
+  const [otp, setOtp] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [showCurrent, setShowCurrent] = useState(false);
-  const [showNew, setShowNew] = useState(false);
-  const [showConfirm, setShowConfirm] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Validation
+  const isEmailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  const isOTPValid = otp.length === 6;
+  const isPasswordValid = newPassword.length >= 8;
+  const isPasswordMatch = newPassword === confirmPassword;
+
+  // Step 1: Send OTP
+  const handleSendOTP = async () => {
+    resetError();
+    const success = await sendOTP(email);
+    if (success) {
+      setStep('otp');
+    }
+  };
+
+  // Step 2: Verify OTP
+  const handleVerifyOTP = async () => {
+    resetError();
+    const result = await verifyOTP(email, otp);
+    if (result.success) {
+      setStep('password');
+    }
+  };
+
+  // Step 3: Change Password
   const handleChangePassword = async () => {
-    // Validation
-    if (!currentPassword || !newPassword || !confirmPassword) {
-      showAlert('Lỗi', 'Vui lòng điền đầy đủ thông tin');
+    if (!isPasswordValid) {
+      Alert.alert('Lỗi', 'Mật khẩu phải có ít nhất 8 ký tự');
       return;
     }
 
-    if (newPassword !== confirmPassword) {
-      showAlert('Lỗi', 'Mật khẩu mới không khớp');
+    if (!isPasswordMatch) {
+      Alert.alert('Lỗi', 'Mật khẩu xác nhận không khớp');
       return;
     }
 
-    if (currentPassword === newPassword) {
-      showAlert('Lỗi', 'Mật khẩu mới phải khác mật khẩu hiện tại');
-      return;
-    }
-
-    // Validate password strength
-    const validation = validatePassword(newPassword);
-    if (!validation.valid) {
-      showAlert('Lỗi', validation.message);
-      return;
-    }
-
-    setLoading(true);
+    setIsSubmitting(true);
 
     try {
-      const result = await changePassword(currentPassword, newPassword);
-
-      if (result.success) {
-        showAlert('Thành công', 'Đổi mật khẩu thành công', () => {
-          router.back();
-        });
-      } else {
-        showAlert('Lỗi', result.message);
+      const user = auth.currentUser;
+      if (!user) {
+        throw new Error('Không tìm thấy người dùng');
       }
-    } catch (error) {
-      showAlert('Lỗi', 'Có lỗi xảy ra. Vui lòng thử lại.');
+
+      // Update password
+      await updatePassword(user, newPassword);
+
+      // Success
+      Alert.alert(
+        'Thành công',
+        'Mật khẩu đã được thay đổi. Vui lòng đăng nhập lại.',
+        [
+          {
+            text: 'OK',
+            onPress: async () => {
+              await auth.signOut();
+              router.replace('/auth/login');
+            },
+          },
+        ]
+      );
+    } catch (err: any) {
+      console.error('Error changing password:', err);
+      
+      if (err.code === 'auth/requires-recent-login') {
+        Alert.alert(
+          'Cần xác thực lại',
+          'Phiên đăng nhập đã quá lâu. Vui lòng đăng xuất và đăng nhập lại.',
+          [
+            { text: 'Hủy', style: 'cancel' },
+            {
+              text: 'Đăng xuất',
+              onPress: async () => {
+                await auth.signOut();
+                router.replace('/auth/login');
+              },
+            },
+          ]
+        );
+      } else {
+        Alert.alert('Lỗi', err.message || 'Không thể đổi mật khẩu');
+      }
     } finally {
-      setLoading(false);
+      setIsSubmitting(false);
+    }
+  };
+
+  // Resend OTP
+  const handleResendOTP = async () => {
+    setOtp('');
+    resetError();
+    await sendOTP(email);
+  };
+
+  // Render Step Content
+  const renderStepContent = () => {
+    switch (step) {
+      case 'email':
+        return (
+          <View style={styles.stepContent}>
+            <View style={styles.iconContainer}>
+              <View style={styles.iconBackground}>
+                <Ionicons name="mail" size={32} color="#3B82F6" />
+              </View>
+            </View>
+
+            <Text style={styles.stepTitle}>Xác thực email</Text>
+            <Text style={styles.stepDescription}>
+              Nhập email của bạn để nhận mã OTP
+            </Text>
+
+            <View style={styles.inputContainer}>
+              <Ionicons
+                name="mail-outline"
+                size={20}
+                color="#9CA3AF"
+                style={styles.inputIcon}
+              />
+              <TextInput
+                style={styles.input}
+                placeholder="your@email.com"
+                placeholderTextColor="#9CA3AF"
+                value={email}
+                onChangeText={setEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              {isEmailValid && (
+                <Ionicons name="checkmark-circle" size={20} color="#10B981" />
+              )}
+            </View>
+
+            {error && (
+              <View style={styles.errorContainer}>
+                <Ionicons name="alert-circle" size={16} color="#EF4444" />
+                <Text style={styles.errorText}>{error}</Text>
+              </View>
+            )}
+
+            <TouchableOpacity
+              style={[
+                styles.primaryButton,
+                (!isEmailValid || loading) && styles.buttonDisabled,
+              ]}
+              onPress={handleSendOTP}
+              disabled={!isEmailValid || loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <>
+                  <Text style={styles.primaryButtonText}>Gửi OTP</Text>
+                  <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
+        );
+
+      case 'otp':
+        return (
+          <View style={styles.stepContent}>
+            <View style={styles.iconContainer}>
+              <View style={styles.iconBackground}>
+                <Ionicons name="keypad" size={32} color="#3B82F6" />
+              </View>
+            </View>
+
+            <Text style={styles.stepTitle}>Nhập mã OTP</Text>
+            <Text style={styles.stepDescription}>
+              Mã xác thực đã được gửi đến{'\n'}
+              <Text style={styles.emailHighlight}>{email}</Text>
+            </Text>
+
+            <View style={styles.otpContainer}>
+              <OTPInput
+                value={otp}
+                onChange={setOtp}
+                error={!!error}
+                disabled={loading}
+              />
+            </View>
+
+            {/* Countdown / Resend */}
+            <View style={styles.resendContainer}>
+              {!canResend ? (
+                <Text style={styles.countdownText}>
+                  Gửi lại sau {countdown}s
+                </Text>
+              ) : (
+                <TouchableOpacity onPress={handleResendOTP} disabled={loading}>
+                  <Text style={styles.resendText}>Gửi lại mã OTP</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {error && (
+              <View style={styles.errorContainer}>
+                <Ionicons name="alert-circle" size={16} color="#EF4444" />
+                <Text style={styles.errorText}>{error}</Text>
+              </View>
+            )}
+
+            <TouchableOpacity
+              style={[
+                styles.primaryButton,
+                (!isOTPValid || loading) && styles.buttonDisabled,
+              ]}
+              onPress={handleVerifyOTP}
+              disabled={!isOTPValid || loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <>
+                  <Text style={styles.primaryButtonText}>Xác thực</Text>
+                  <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
+                </>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.secondaryButton}
+              onPress={() => {
+                setStep('email');
+                setOtp('');
+                resetError();
+              }}
+            >
+              <Ionicons name="arrow-back" size={20} color="#6B7280" />
+              <Text style={styles.secondaryButtonText}>Quay lại</Text>
+            </TouchableOpacity>
+          </View>
+        );
+
+      case 'password':
+        return (
+          <View style={styles.stepContent}>
+            <View style={styles.iconContainer}>
+              <View style={[styles.iconBackground, { backgroundColor: '#D1FAE5' }]}>
+                <Ionicons name="lock-open" size={32} color="#10B981" />
+              </View>
+            </View>
+
+            <Text style={styles.stepTitle}>Tạo mật khẩu mới</Text>
+            <Text style={styles.stepDescription}>
+              Mật khẩu phải có ít nhất 8 ký tự
+            </Text>
+
+            {/* New Password */}
+            <View style={styles.inputContainer}>
+              <Ionicons
+                name="lock-closed-outline"
+                size={20}
+                color="#9CA3AF"
+                style={styles.inputIcon}
+              />
+              <TextInput
+                style={[styles.input, { flex: 1 }]}
+                placeholder="Mật khẩu mới"
+                placeholderTextColor="#9CA3AF"
+                value={newPassword}
+                onChangeText={setNewPassword}
+                secureTextEntry={!showNewPassword}
+              />
+              <TouchableOpacity
+                onPress={() => setShowNewPassword(!showNewPassword)}
+              >
+                <Ionicons
+                  name={showNewPassword ? 'eye-off-outline' : 'eye-outline'}
+                  size={20}
+                  color="#9CA3AF"
+                />
+              </TouchableOpacity>
+            </View>
+
+            {/* Password Strength Indicator */}
+            {newPassword.length > 0 && (
+              <View style={styles.strengthContainer}>
+                <View style={styles.strengthBar}>
+                  <View
+                    style={[
+                      styles.strengthFill,
+                      {
+                        width: `${Math.min(100, (newPassword.length / 12) * 100)}%`,
+                        backgroundColor:
+                          newPassword.length < 8
+                            ? '#EF4444'
+                            : newPassword.length < 12
+                            ? '#F59E0B'
+                            : '#10B981',
+                      },
+                    ]}
+                  />
+                </View>
+                <Text
+                  style={[
+                    styles.strengthText,
+                    {
+                      color:
+                        newPassword.length < 8
+                          ? '#EF4444'
+                          : newPassword.length < 12
+                          ? '#F59E0B'
+                          : '#10B981',
+                    },
+                  ]}
+                >
+                  {newPassword.length < 8
+                    ? 'Yếu'
+                    : newPassword.length < 12
+                    ? 'Trung bình'
+                    : 'Mạnh'}
+                </Text>
+              </View>
+            )}
+
+            {/* Confirm Password */}
+            <View style={styles.inputContainer}>
+              <Ionicons
+                name="lock-closed-outline"
+                size={20}
+                color="#9CA3AF"
+                style={styles.inputIcon}
+              />
+              <TextInput
+                style={[styles.input, { flex: 1 }]}
+                placeholder="Xác nhận mật khẩu"
+                placeholderTextColor="#9CA3AF"
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+                secureTextEntry={!showConfirmPassword}
+              />
+              <TouchableOpacity
+                onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+              >
+                <Ionicons
+                  name={showConfirmPassword ? 'eye-off-outline' : 'eye-outline'}
+                  size={20}
+                  color="#9CA3AF"
+                />
+              </TouchableOpacity>
+            </View>
+
+            {/* Password Match Indicator */}
+            {confirmPassword.length > 0 && (
+              <View style={styles.matchContainer}>
+                <Ionicons
+                  name={isPasswordMatch ? 'checkmark-circle' : 'close-circle'}
+                  size={16}
+                  color={isPasswordMatch ? '#10B981' : '#EF4444'}
+                />
+                <Text
+                  style={[
+                    styles.matchText,
+                    { color: isPasswordMatch ? '#10B981' : '#EF4444' },
+                  ]}
+                >
+                  {isPasswordMatch ? 'Mật khẩu khớp' : 'Mật khẩu không khớp'}
+                </Text>
+              </View>
+            )}
+
+            <TouchableOpacity
+              style={[
+                styles.primaryButton,
+                { backgroundColor: '#10B981' },
+                (!isPasswordValid || !isPasswordMatch || isSubmitting) &&
+                  styles.buttonDisabled,
+              ]}
+              onPress={handleChangePassword}
+              disabled={!isPasswordValid || !isPasswordMatch || isSubmitting}
+            >
+              {isSubmitting ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <>
+                  <Ionicons name="checkmark-circle" size={20} color="#FFFFFF" />
+                  <Text style={styles.primaryButtonText}>Đổi mật khẩu</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
+        );
     }
   };
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
       {/* Header */}
-      <LinearGradient colors={['#667eea', '#764ba2']} style={styles.header}>
-        <View style={styles.headerContent}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color="white" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Đổi mật khẩu</Text>
-          <View style={styles.placeholder} />
-        </View>
-      </LinearGradient>
+      <View style={styles.header}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => router.back()}
+        >
+          <Ionicons name="arrow-back" size={24} color="#1F2937" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Đổi mật khẩu</Text>
+        <View style={styles.placeholder} />
+      </View>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.card}>
-          {/* Info Box */}
-          <View style={styles.infoBox}>
-            <Ionicons name="information-circle" size={24} color="#667eea" />
-            <Text style={styles.infoText}>
-              Mật khẩu phải có ít nhất 6 ký tự
-            </Text>
-          </View>
-
-          {/* Current Password */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Mật khẩu hiện tại</Text>
-            <View style={styles.inputContainer}>
-              <Ionicons name="lock-closed-outline" size={20} color="#999" />
-              <TextInput
-                style={styles.input}
-                placeholder="Nhập mật khẩu hiện tại"
-                value={currentPassword}
-                onChangeText={setCurrentPassword}
-                secureTextEntry={!showCurrent}
-                editable={!loading}
-              />
-              <TouchableOpacity onPress={() => setShowCurrent(!showCurrent)}>
-                <Ionicons
-                  name={showCurrent ? 'eye-outline' : 'eye-off-outline'}
-                  size={20}
-                  color="#999"
-                />
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* New Password */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Mật khẩu mới</Text>
-            <View style={styles.inputContainer}>
-              <Ionicons name="lock-closed-outline" size={20} color="#999" />
-              <TextInput
-                style={styles.input}
-                placeholder="Nhập mật khẩu mới"
-                value={newPassword}
-                onChangeText={setNewPassword}
-                secureTextEntry={!showNew}
-                editable={!loading}
-              />
-              <TouchableOpacity onPress={() => setShowNew(!showNew)}>
-                <Ionicons
-                  name={showNew ? 'eye-outline' : 'eye-off-outline'}
-                  size={20}
-                  color="#999"
-                />
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* Confirm Password */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Xác nhận mật khẩu mới</Text>
-            <View style={styles.inputContainer}>
-              <Ionicons name="lock-closed-outline" size={20} color="#999" />
-              <TextInput
-                style={styles.input}
-                placeholder="Nhập lại mật khẩu mới"
-                value={confirmPassword}
-                onChangeText={setConfirmPassword}
-                secureTextEntry={!showConfirm}
-                editable={!loading}
-              />
-              <TouchableOpacity onPress={() => setShowConfirm(!showConfirm)}>
-                <Ionicons
-                  name={showConfirm ? 'eye-outline' : 'eye-off-outline'}
-                  size={20}
-                  color="#999"
-                />
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* Submit Button */}
-          <TouchableOpacity
-            onPress={handleChangePassword}
-            disabled={loading}
-            style={styles.buttonWrapper}
-          >
-            <LinearGradient
-              colors={['#667eea', '#764ba2']}
-              style={[styles.button, loading && styles.buttonDisabled]}
+      {/* Progress Steps */}
+      <View style={styles.progressContainer}>
+        {['email', 'otp', 'password'].map((s, index) => (
+          <React.Fragment key={s}>
+            <View
+              style={[
+                styles.progressStep,
+                step === s && styles.progressStepActive,
+                ['email', 'otp', 'password'].indexOf(step) > index &&
+                  styles.progressStepCompleted,
+              ]}
             >
-              {loading ? (
-                <ActivityIndicator color="white" />
+              {['email', 'otp', 'password'].indexOf(step) > index ? (
+                <Ionicons name="checkmark" size={14} color="#FFFFFF" />
               ) : (
-                <>
-                  <Ionicons name="checkmark-circle" size={20} color="white" />
-                  <Text style={styles.buttonText}>Đổi mật khẩu</Text>
-                </>
+                <Text
+                  style={[
+                    styles.progressStepText,
+                    (step === s || ['email', 'otp', 'password'].indexOf(step) > index) &&
+                      styles.progressStepTextActive,
+                  ]}
+                >
+                  {index + 1}
+                </Text>
               )}
-            </LinearGradient>
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
-    </View>
+            </View>
+            {index < 2 && (
+              <View
+                style={[
+                  styles.progressLine,
+                  ['email', 'otp', 'password'].indexOf(step) > index &&
+                    styles.progressLineActive,
+                ]}
+              />
+            )}
+          </React.Fragment>
+        ))}
+      </View>
+
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <ScrollView
+          style={styles.content}
+          contentContainerStyle={styles.contentContainer}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          {renderStepContent()}
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
-}
+};
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f6fa',
+    backgroundColor: '#F9FAFB',
   },
   header: {
-    paddingTop: 60,
-    paddingBottom: 20,
-    paddingHorizontal: 20,
-  },
-  headerContent: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
   },
   backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    padding: 8,
+    marginLeft: -8,
   },
   headerTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: 'white',
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1F2937',
   },
   placeholder: {
     width: 40,
   },
-  content: {
-    flex: 1,
-    padding: 20,
-  },
-  card: {
-    backgroundColor: 'white',
-    borderRadius: 16,
-    padding: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  infoBox: {
+  progressContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f0f4ff',
-    padding: 12,
-    borderRadius: 12,
-    marginBottom: 24,
-    gap: 10,
+    justifyContent: 'center',
+    paddingVertical: 24,
+    paddingHorizontal: 48,
+    backgroundColor: '#FFFFFF',
   },
-  infoText: {
+  progressStep: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#E5E7EB',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  progressStepActive: {
+    backgroundColor: '#3B82F6',
+  },
+  progressStepCompleted: {
+    backgroundColor: '#10B981',
+  },
+  progressStepText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#9CA3AF',
+  },
+  progressStepTextActive: {
+    color: '#FFFFFF',
+  },
+  progressLine: {
     flex: 1,
-    fontSize: 14,
-    color: '#667eea',
+    height: 2,
+    backgroundColor: '#E5E7EB',
+    marginHorizontal: 8,
   },
-  inputGroup: {
+  progressLineActive: {
+    backgroundColor: '#10B981',
+  },
+  content: {
+    flex: 1,
+  },
+  contentContainer: {
+    padding: 24,
+  },
+  stepContent: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  iconContainer: {
+    alignItems: 'center',
     marginBottom: 20,
   },
-  label: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#333',
+  iconBackground: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: '#EFF6FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#1F2937',
+    textAlign: 'center',
     marginBottom: 8,
+  },
+  stepDescription: {
+    fontSize: 14,
+    color: '#6B7280',
+    textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 20,
+  },
+  emailHighlight: {
+    fontWeight: '600',
+    color: '#3B82F6',
   },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f8f9fa',
+    backgroundColor: '#F9FAFB',
     borderRadius: 12,
-    paddingHorizontal: 15,
     borderWidth: 1,
-    borderColor: '#e0e0e0',
-    gap: 10,
+    borderColor: '#E5E7EB',
+    paddingHorizontal: 16,
+    marginBottom: 16,
+  },
+  inputIcon: {
+    marginRight: 12,
   },
   input: {
     flex: 1,
-    paddingVertical: 14,
-    fontSize: 15,
-    color: '#1a1a1a',
+    height: 52,
+    fontSize: 16,
+    color: '#1F2937',
   },
-  buttonWrapper: {
-    marginTop: 12,
+  otpContainer: {
+    marginBottom: 20,
   },
-  button: {
+  resendContainer: {
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  countdownText: {
+    fontSize: 14,
+    color: '#9CA3AF',
+  },
+  resendText: {
+    fontSize: 14,
+    color: '#3B82F6',
+    fontWeight: '600',
+  },
+  errorContainer: {
     flexDirection: 'row',
-    paddingVertical: 16,
-    borderRadius: 12,
+    alignItems: 'center',
+    backgroundColor: '#FEF2F2',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 16,
+    gap: 8,
+  },
+  errorText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#DC2626',
+  },
+  primaryButton: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: '#3B82F6',
+    height: 52,
+    borderRadius: 12,
     gap: 8,
   },
   buttonDisabled: {
-    opacity: 0.6,
+    opacity: 0.5,
   },
-  buttonText: {
-    color: 'white',
+  primaryButtonText: {
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  secondaryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 44,
+    marginTop: 12,
+    gap: 8,
+  },
+  secondaryButtonText: {
+    fontSize: 14,
+    color: '#6B7280',
+  },
+  strengthContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+    gap: 12,
+  },
+  strengthBar: {
+    flex: 1,
+    height: 4,
+    backgroundColor: '#E5E7EB',
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  strengthFill: {
+    height: '100%',
+    borderRadius: 2,
+  },
+  strengthText: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  matchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+    gap: 6,
+  },
+  matchText: {
+    fontSize: 13,
+    fontWeight: '500',
   },
 });
+
+export default ChangePasswordScreen;

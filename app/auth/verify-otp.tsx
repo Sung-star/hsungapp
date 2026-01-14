@@ -112,7 +112,7 @@ export default function VerifyOTPScreen() {
     try {
       const result = await sendOTP({
         email: email || '',
-        type: 'password-reset',
+        type: 'password_reset',
       });
 
       if (result.success) {
@@ -161,8 +161,9 @@ export default function VerifyOTPScreen() {
               {otp.map((digit, index) => (
                 <TextInput
                   key={index}
-                  ref={(ref) => (inputRefs.current[index] = ref)}
-                  style={[
+ref={(ref) => {
+  inputRefs.current[index] = ref;
+}}                  style={[
                     styles.otpInput,
                     digit && styles.otpInputFilled,
                   ]}

@@ -1,4 +1,5 @@
-// app/orders/[id].tsx
+// app/orders/[id].tsx - Fixed for Web compatibility
+
 import {
   deleteOrder,
   getOrder,
@@ -9,7 +10,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
-  Alert,
   Image,
   ScrollView,
   StyleSheet,
@@ -19,11 +19,13 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { Order, OrderStatus } from '@/types/order';
+import { showAlert, showConfirmDialog } from '@/utils/platformAlert'; // ← Import này
 
 export default function OrderDetailScreen() {
   const { id } = useLocalSearchParams();
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
+  const [updating, setUpdating] = useState(false); // ← Thêm state loading
 
   useEffect(() => {
     const loadOrder = async () => {
@@ -31,15 +33,14 @@ export default function OrderDetailScreen() {
         setLoading(true);
         const data = await getOrder(id as string);
         if (!data) {
-          Alert.alert('Lỗi', 'Không tìm thấy đơn hàng', [
-            { text: 'OK', onPress: () => router.back() },
-          ]);
+          showAlert('Lỗi', 'Không tìm thấy đơn hàng');
+          router.back();
           return;
         }
         setOrder(data);
       } catch (error) {
         console.error(error);
-        Alert.alert('Lỗi', 'Không thể tải đơn hàng');
+        showAlert('Lỗi', 'Không thể tải đơn hàng');
       } finally {
         setLoading(false);
       }
@@ -107,54 +108,49 @@ export default function OrderDetailScreen() {
     }
   };
 
+  // ✅ FIX: Sử dụng showConfirmDialog thay vì Alert.alert
   const handleUpdateStatus = async (newStatus: OrderStatus) => {
     if (!order) return;
 
     const statusText = getStatusText(newStatus);
-    Alert.alert(
+    
+    showConfirmDialog(
       'Xác nhận',
       `Bạn có chắc muốn chuyển trạng thái sang "${statusText}"?`,
-      [
-        { text: 'Hủy', style: 'cancel' },
-        {
-          text: 'Xác nhận',
-          onPress: async () => {
-            try {
-              await updateOrderStatus(id as string, newStatus);
-              setOrder({ ...order, status: newStatus });
-              Alert.alert('Thành công', 'Đã cập nhật trạng thái');
-            } catch (error) {
-              console.error(error);
-              Alert.alert('Lỗi', 'Không thể cập nhật trạng thái');
-            }
-          },
-        },
-      ]
+      async () => {
+        setUpdating(true);
+        try {
+          await updateOrderStatus(id as string, newStatus);
+          setOrder({ ...order, status: newStatus });
+          showAlert('Thành công', 'Đã cập nhật trạng thái');
+        } catch (error) {
+          console.error(error);
+          showAlert('Lỗi', 'Không thể cập nhật trạng thái');
+        } finally {
+          setUpdating(false);
+        }
+      }
     );
   };
 
+  // ✅ FIX: Sử dụng showConfirmDialog thay vì Alert.alert
   const handleDelete = () => {
-    Alert.alert(
+    showConfirmDialog(
       'Xác nhận xóa',
       `Bạn có chắc muốn xóa đơn hàng "${order?.orderNumber}"?`,
-      [
-        { text: 'Hủy', style: 'cancel' },
-        {
-          text: 'Xóa',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await deleteOrder(id as string);
-              Alert.alert('Thành công', 'Đã xóa đơn hàng', [
-                { text: 'OK', onPress: () => router.replace('/(tabs)/orders') },
-              ]);
-            } catch (error) {
-              console.error(error);
-              Alert.alert('Lỗi', 'Không thể xóa đơn hàng');
-            }
-          },
-        },
-      ]
+      async () => {
+        setUpdating(true);
+        try {
+          await deleteOrder(id as string);
+          showAlert('Thành công', 'Đã xóa đơn hàng');
+          router.replace('/(tabs)/orders');
+        } catch (error) {
+          console.error(error);
+          showAlert('Lỗi', 'Không thể xóa đơn hàng');
+        } finally {
+          setUpdating(false);
+        }
+      }
     );
   };
 
@@ -175,11 +171,18 @@ export default function OrderDetailScreen() {
     );
   }
 
-  // Force convert status to string
   const orderStatus = String(order.status);
 
   return (
     <View style={styles.container}>
+      {/* Loading Overlay */}
+      {updating && (
+        <View style={styles.loadingOverlay}>
+          <ActivityIndicator size="large" color="#667eea" />
+          <Text style={styles.loadingOverlayText}>Đang xử lý...</Text>
+        </View>
+      )}
+
       {/* Header */}
       <LinearGradient colors={['#667eea', '#764ba2']} style={styles.header}>
         <View style={styles.headerContent}>
@@ -250,7 +253,13 @@ export default function OrderDetailScreen() {
           </View>
           {order.items.map((item, index) => (
             <View key={index} style={styles.productItem}>
-              <Image source={{ uri: item.productImage }} style={styles.productImage} />
+              {item.productImage ? (
+                <Image source={{ uri: item.productImage }} style={styles.productImage} />
+              ) : (
+                <View style={[styles.productImage, styles.productImagePlaceholder]}>
+                  <Ionicons name="cube-outline" size={24} color="#9CA3AF" />
+                </View>
+              )}
               <View style={styles.productInfo}>
                 <Text style={styles.productName} numberOfLines={2}>
                   {item.productName}
@@ -318,6 +327,7 @@ export default function OrderDetailScreen() {
             <TouchableOpacity
               style={styles.actionButton}
               onPress={() => handleUpdateStatus('confirmed')}
+              disabled={updating}
             >
               <LinearGradient
                 colors={['#42A5F5', '#64B5F6']}
@@ -331,6 +341,7 @@ export default function OrderDetailScreen() {
             <TouchableOpacity
               style={styles.actionButton}
               onPress={() => handleUpdateStatus('cancelled')}
+              disabled={updating}
             >
               <LinearGradient
                 colors={['#FF6B6B', '#FF8E8E']}
@@ -347,6 +358,7 @@ export default function OrderDetailScreen() {
           <TouchableOpacity
             style={[styles.actionButton, { marginHorizontal: 20, marginTop: 16 }]}
             onPress={() => handleUpdateStatus('preparing')}
+            disabled={updating}
           >
             <LinearGradient
               colors={['#AB47BC', '#BA68C8']}
@@ -362,6 +374,7 @@ export default function OrderDetailScreen() {
           <TouchableOpacity
             style={[styles.actionButton, { marginHorizontal: 20, marginTop: 16 }]}
             onPress={() => handleUpdateStatus('delivering')}
+            disabled={updating}
           >
             <LinearGradient
               colors={['#5C6BC0', '#7986CB']}
@@ -377,6 +390,7 @@ export default function OrderDetailScreen() {
           <TouchableOpacity
             style={[styles.actionButton, { marginHorizontal: 20, marginTop: 16 }]}
             onPress={() => handleUpdateStatus('completed')}
+            disabled={updating}
           >
             <LinearGradient
               colors={['#43A047', '#66BB6A']}
@@ -393,9 +407,13 @@ export default function OrderDetailScreen() {
 
       {/* Delete Button */}
       <View style={styles.footer}>
-        <TouchableOpacity style={styles.deleteButton} onPress={handleDelete}>
-          <Ionicons name="trash-outline" size={20} color="#FF6B6B" />
-          <Text style={styles.deleteText}>Xóa đơn hàng</Text>
+        <TouchableOpacity 
+          style={[styles.deleteButton, updating && styles.deleteButtonDisabled]} 
+          onPress={handleDelete}
+          disabled={updating}
+        >
+          <Ionicons name="trash-outline" size={20} color={updating ? '#ccc' : '#FF6B6B'} />
+          <Text style={[styles.deleteText, updating && { color: '#ccc' }]}>Xóa đơn hàng</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -416,6 +434,24 @@ const styles = StyleSheet.create({
     marginTop: 12,
     fontSize: 14,
     color: '#999',
+  },
+  // ✅ Thêm loading overlay
+  loadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(255,255,255,0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 999,
+  },
+  loadingOverlayText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: '#667eea',
+    fontWeight: '500',
   },
   header: {
     paddingTop: 50,
@@ -522,6 +558,10 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     backgroundColor: '#f0f0f0',
   },
+  productImagePlaceholder: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   productInfo: {
     flex: 1,
     marginLeft: 12,
@@ -621,6 +661,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 2,
     borderColor: '#FF6B6B',
+  },
+  deleteButtonDisabled: {
+    borderColor: '#ccc',
   },
   deleteText: {
     fontSize: 16,

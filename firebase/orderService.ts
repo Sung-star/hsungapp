@@ -15,6 +15,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '@/config/firebase';
 import { Order, OrderStatus, OrderItem } from '@/types/order';
+import { createNotification } from '@/services/notificationService';
 
 export function generateOrderNumber(): string {
   const now = new Date();
@@ -47,6 +48,34 @@ function convertFirestoreToOrder(id: string, data: any): Order {
   };
 }
 
+// ===== NOTIFICATION MESSAGES =====
+const statusNotificationMessages: Record<OrderStatus, { title: string; body: string }> = {
+  pending: {
+    title: '🛒 Đơn hàng mới',
+    body: 'Đơn hàng của bạn đã được tạo và đang chờ xác nhận.',
+  },
+  confirmed: {
+    title: '✅ Đơn hàng đã xác nhận',
+    body: 'Đơn hàng của bạn đã được xác nhận và đang được xử lý.',
+  },
+  preparing: {
+    title: '👨‍🍳 Đang chuẩn bị',
+    body: 'Đơn hàng của bạn đang được chuẩn bị.',
+  },
+  delivering: {
+    title: '🚚 Đang giao hàng',
+    body: 'Đơn hàng của bạn đang trên đường giao đến bạn.',
+  },
+  completed: {
+    title: '🎉 Giao hàng thành công',
+    body: 'Đơn hàng của bạn đã được giao thành công. Cảm ơn bạn đã mua hàng!',
+  },
+  cancelled: {
+    title: '❌ Đơn hàng đã hủy',
+    body: 'Đơn hàng của bạn đã bị hủy.',
+  },
+};
+
 export async function createOrder(orderData: Omit<Order, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
   try {
     const docRef = await addDoc(collection(db, 'orders'), {
@@ -57,6 +86,18 @@ export async function createOrder(orderData: Omit<Order, 'id' | 'createdAt' | 'u
     });
     
     console.log('✅ Order created:', docRef.id);
+
+    // Gửi thông báo cho khách hàng khi tạo đơn hàng mới
+    if (orderData.customerId) {
+      await createNotification({
+        userId: orderData.customerId,
+        title: statusNotificationMessages.pending.title,
+        body: `${statusNotificationMessages.pending.body} Mã đơn: ${orderData.orderNumber}`,
+        type: 'order',
+        orderId: docRef.id,
+      });
+    }
+
     return docRef.id;
   } catch (error) {
     console.error('❌ Error creating order:', error);
@@ -115,12 +156,32 @@ export async function updateOrderStatus(
   status: OrderStatus
 ): Promise<void> {
   try {
+    // 1. Lấy thông tin đơn hàng trước để có customerId
+    const order = await getOrder(orderId);
+    if (!order) {
+      throw new Error('Không tìm thấy đơn hàng');
+    }
+
+    // 2. Cập nhật trạng thái
     const orderRef = doc(db, 'orders', orderId);
     await updateDoc(orderRef, {
       status,
       updatedAt: serverTimestamp(),
     });
     console.log('✅ Order status updated:', orderId, status);
+
+    // 3. Gửi thông báo cho khách hàng
+    if (order.customerId) {
+      const notificationData = statusNotificationMessages[status];
+      await createNotification({
+        userId: order.customerId,
+        title: notificationData.title,
+        body: `${notificationData.body} Mã đơn: ${order.orderNumber}`,
+        type: 'order',
+        orderId: orderId,
+      });
+      console.log('✅ Notification sent to customer:', order.customerId);
+    }
   } catch (error) {
     console.error('❌ Error updating order status:', error);
     throw new Error('Không thể cập nhật trạng thái đơn hàng');

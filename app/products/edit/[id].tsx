@@ -263,6 +263,10 @@ export default function EditProductScreen() {
 
 /* ================= STYLES ================= */
 const styles = StyleSheet.create({
+  categoryText: {
+  fontSize: 14,
+  color: '#374151',
+},
   container: { flex: 1, backgroundColor: '#f5f6fa' },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   header: { paddingTop: 50, paddingBottom: 20, borderBottomLeftRadius: 30, borderBottomRightRadius: 30 },

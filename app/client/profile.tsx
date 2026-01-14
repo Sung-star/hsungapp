@@ -1,5 +1,4 @@
-// app/client/profile.tsx - COMPLETE Profile Screen with All Modals
-
+// app/client/profile.tsx - 🎨 REDESIGNED Fresh Market Theme
 import { auth, db } from '@/config/firebase';
 import { logout } from '@/services/authService';
 import { Ionicons } from '@expo/vector-icons';
@@ -7,82 +6,33 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { collection, doc, getDoc, getDocs, query, setDoc, updateDoc, where } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
-import {
-  Alert,
-  Image,
-  Modal,
-  ScrollView,
-  StyleSheet,
-  Switch,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { Alert, Image, Modal, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View, Platform } from 'react-native';
 import { showAlert, showConfirmDialog } from '@/utils/platformAlert';
 import { updateProfile } from 'firebase/auth';
 import { useNotifications } from '@/hooks/useNotifications';
 
-interface Address {
-  id: string;
-  name: string;
-  phone: string;
-  address: string;
-  isDefault: boolean;
-}
-
-interface UserSettings {
-  notifications: boolean;
-  emailNotifications: boolean;
-  orderUpdates: boolean;
-  promotions: boolean;
-}
+interface Address { id: string; name: string; phone: string; address: string; isDefault: boolean; }
+interface UserSettings { notifications: boolean; emailNotifications: boolean; orderUpdates: boolean; promotions: boolean; }
 
 export default function ClientProfileScreen() {
   const user = auth.currentUser;
   const router = useRouter();
   const { unreadCount } = useNotifications();
   
-  const [stats, setStats] = useState({
-    totalOrders: 0,
-    completedOrders: 0,
-    totalSpent: 0,
-  });
-
-  // Modals state
+  const [stats, setStats] = useState({ totalOrders: 0, completedOrders: 0, totalSpent: 0 });
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showAddressModal, setShowAddressModal] = useState(false);
-  const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showHelpModal, setShowHelpModal] = useState(false);
-
-  // Profile edit state
   const [editName, setEditName] = useState(user?.displayName || '');
   const [editPhone, setEditPhone] = useState('');
   const [saving, setSaving] = useState(false);
-
-  // Addresses state
   const [addresses, setAddresses] = useState<Address[]>([]);
-  const [newAddress, setNewAddress] = useState({
-    name: '',
-    phone: '',
-    address: '',
-  });
-
-  // Settings state
-  const [settings, setSettings] = useState<UserSettings>({
-    notifications: true,
-    emailNotifications: true,
-    orderUpdates: true,
-    promotions: false,
-  });
-
-  // Favorites state
+  const [newAddress, setNewAddress] = useState({ name: '', phone: '', address: '' });
   const [favoriteCount, setFavoriteCount] = useState(0);
 
   useEffect(() => {
     loadStats();
     loadAddresses();
-    loadSettings();
     loadFavorites();
     loadUserProfile();
   }, [user]);
@@ -91,439 +41,231 @@ export default function ClientProfileScreen() {
     if (!user) return;
     try {
       const userDoc = await getDoc(doc(db, 'users', user.uid));
-      if (userDoc.exists()) {
-        const userData = userDoc.data();
-        setEditPhone(userData.phone || '');
-      }
-    } catch (err) {
-      console.error('Error loading profile:', err);
-    }
+      if (userDoc.exists()) setEditPhone(userDoc.data().phone || '');
+    } catch (err) { console.error('Error loading profile:', err); }
   };
 
   const loadStats = async () => {
     if (!user) return;
-
     try {
-      const q = query(
-        collection(db, 'orders'),
-        where('customerId', '==', user.uid)
-      );
+      const q = query(collection(db, 'orders'), where('customerId', '==', user.uid));
       const snapshot = await getDocs(q);
-
       const orders = snapshot.docs.map((doc) => doc.data());
       const completed = orders.filter((o) => o.status === 'completed');
       const totalSpent = completed.reduce((sum, o) => sum + (o.total || 0), 0);
-
-      setStats({
-        totalOrders: orders.length,
-        completedOrders: completed.length,
-        totalSpent,
-      });
-    } catch (err) {
-      console.error('Error loading stats:', err);
-    }
+      setStats({ totalOrders: orders.length, completedOrders: completed.length, totalSpent });
+    } catch (err) { console.error('Error loading stats:', err); }
   };
 
   const loadAddresses = async () => {
     if (!user) return;
     try {
-      const q = query(
-        collection(db, 'addresses'),
-        where('userId', '==', user.uid)
-      );
+      const q = query(collection(db, 'addresses'), where('userId', '==', user.uid));
       const snapshot = await getDocs(q);
-      const addressList = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      })) as Address[];
-      setAddresses(addressList);
-    } catch (err) {
-      console.error('Error loading addresses:', err);
-    }
-  };
-
-  const loadSettings = async () => {
-    if (!user) return;
-    try {
-      const docRef = doc(db, 'userSettings', user.uid);
-      const docSnap = await getDoc(docRef);
-      if (docSnap.exists()) {
-        setSettings(docSnap.data() as UserSettings);
-      }
-    } catch (err) {
-      console.error('Error loading settings:', err);
-    }
+      const list = snapshot.docs.filter(d => !d.data().deleted).map((d) => ({ id: d.id, ...d.data() })) as Address[];
+      setAddresses(list);
+    } catch (err) { console.error('Error loading addresses:', err); }
   };
 
   const loadFavorites = async () => {
     if (!user) return;
     try {
-      const q = query(
-        collection(db, 'favorites'),
-        where('userId', '==', user.uid)
-      );
+      const q = query(collection(db, 'favorites'), where('userId', '==', user.uid));
       const snapshot = await getDocs(q);
       setFavoriteCount(snapshot.size);
-    } catch (err) {
-      console.error('Error loading favorites:', err);
-    }
+    } catch (err) { console.error('Error loading favorites:', err); }
   };
 
   const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('vi-VN', {
-      style: 'currency',
-      currency: 'VND',
-    }).format(amount);
+    if (amount >= 1000000) return `${(amount / 1000000).toFixed(1)}M`;
+    return `${(amount / 1000).toFixed(0)}K`;
   };
 
   const handleSaveProfile = async () => {
-    if (!user) return;
-    if (!editName.trim()) {
-      Alert.alert('Lỗi', 'Vui lòng nhập tên');
-      return;
-    }
-
+    if (!user || !editName.trim()) { Alert.alert('Lỗi', 'Vui lòng nhập tên'); return; }
     setSaving(true);
     try {
       await updateProfile(user, { displayName: editName });
-      await setDoc(
-        doc(db, 'users', user.uid),
-        { displayName: editName, phone: editPhone },
-        { merge: true }
-      );
+      await setDoc(doc(db, 'users', user.uid), { displayName: editName, phone: editPhone }, { merge: true });
       setShowProfileModal(false);
-      Alert.alert('Thành công', 'Cập nhật thông tin thành công');
-    } catch (err) {
-      Alert.alert('Lỗi', 'Không thể cập nhật thông tin');
-    } finally {
-      setSaving(false);
-    }
+      Alert.alert('Thành công', 'Đã cập nhật thông tin');
+    } catch (err) { Alert.alert('Lỗi', 'Không thể cập nhật'); }
+    finally { setSaving(false); }
   };
 
   const handleAddAddress = async () => {
-    if (!user) return;
-    if (!newAddress.name || !newAddress.phone || !newAddress.address) {
-      Alert.alert('Lỗi', 'Vui lòng điền đầy đủ thông tin');
-      return;
+    if (!user || !newAddress.name || !newAddress.phone || !newAddress.address) {
+      Alert.alert('Lỗi', 'Vui lòng điền đầy đủ'); return;
     }
-
     try {
       const addressRef = doc(collection(db, 'addresses'));
-      await setDoc(addressRef, {
-        userId: user.uid,
-        ...newAddress,
-        isDefault: addresses.length === 0,
-        createdAt: new Date(),
-      });
+      await setDoc(addressRef, { userId: user.uid, ...newAddress, isDefault: addresses.length === 0, createdAt: new Date() });
       setNewAddress({ name: '', phone: '', address: '' });
       setShowAddressModal(false);
       loadAddresses();
-      Alert.alert('Thành công', 'Đã thêm địa chỉ mới');
-    } catch (err) {
-      Alert.alert('Lỗi', 'Không thể thêm địa chỉ');
-    }
+      Alert.alert('Thành công', 'Đã thêm địa chỉ');
+    } catch (err) { Alert.alert('Lỗi', 'Không thể thêm địa chỉ'); }
   };
 
-  const handleDeleteAddress = async (addressId: string) => {
-    Alert.alert('Xác nhận', 'Bạn có chắc muốn xóa địa chỉ này?', [
+  const handleDeleteAddress = (addressId: string) => {
+    Alert.alert('Xác nhận', 'Xóa địa chỉ này?', [
       { text: 'Hủy', style: 'cancel' },
-      {
-        text: 'Xóa',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await updateDoc(doc(db, 'addresses', addressId), {
-              deleted: true,
-            });
-            loadAddresses();
-            Alert.alert('Thành công', 'Đã xóa địa chỉ');
-          } catch (err) {
-            Alert.alert('Lỗi', 'Không thể xóa địa chỉ');
-          }
-        },
-      },
+      { text: 'Xóa', style: 'destructive', onPress: async () => {
+        try {
+          await updateDoc(doc(db, 'addresses', addressId), { deleted: true });
+          loadAddresses();
+        } catch (err) { Alert.alert('Lỗi', 'Không thể xóa'); }
+      }},
     ]);
   };
 
-  const handleSaveSettings = async () => {
-    if (!user) return;
-    try {
-      await setDoc(doc(db, 'userSettings', user.uid), settings);
-      setShowSettingsModal(false);
-      Alert.alert('Thành công', 'Đã lưu cài đặt');
-    } catch (err) {
-      Alert.alert('Lỗi', 'Không thể lưu cài đặt');
-    }
+  const handleLogout = () => {
+    showConfirmDialog('Đăng xuất', 'Bạn có chắc muốn đăng xuất?', async () => {
+      try { await logout(); router.replace('/auth/login'); }
+      catch (error) { showAlert('Lỗi', 'Không thể đăng xuất'); }
+    });
   };
 
-  const handleLogout = () => {
-    showConfirmDialog(
-      'Đăng xuất',
-      'Bạn có chắc muốn đăng xuất?',
-      async () => {
-        try {
-          await logout();
-          router.replace('/auth/login');
-        } catch (error) {
-          showAlert('Lỗi', 'Không thể đăng xuất. Vui lòng thử lại.');
-        }
-      }
-    );
-  };
+  const menuItems = [
+    { id: 1, title: 'Thông tin cá nhân', icon: 'person-outline', color: '#3B82F6', bg: '#DBEAFE', onPress: () => setShowProfileModal(true) },
+    { id: 2, title: 'Đổi mật khẩu', icon: 'key-outline', color: '#8B5CF6', bg: '#EDE9FE', onPress: () => router.push('/client/change-password') },
+    { id: 3, title: 'Đơn hàng của tôi', icon: 'receipt-outline', color: '#F59E0B', bg: '#FEF3C7', badge: stats.totalOrders, onPress: () => router.push('/client/my-orders') },
+    { id: 4, title: 'Địa chỉ giao hàng', icon: 'location-outline', color: '#22C55E', bg: '#DCFCE7', badge: addresses.length, onPress: () => setShowAddressModal(true) },
+    { id: 5, title: 'Sản phẩm yêu thích', icon: 'heart-outline', color: '#EC4899', bg: '#FCE7F3', badge: favoriteCount, onPress: () => router.push('/client/favorites') },
+  ];
+
+  const settingsItems = [
+    { id: 1, title: 'Thông báo', icon: 'notifications-outline', color: '#F59E0B', bg: '#FEF3C7', badge: unreadCount, onPress: () => router.push('/client/notifications') },
+    { id: 2, title: 'Cài đặt', icon: 'settings-outline', color: '#8B5CF6', bg: '#EDE9FE', onPress: () => router.push('/client/settings') },
+    { id: 3, title: 'Bảo mật', icon: 'shield-checkmark-outline', color: '#EF4444', bg: '#FEE2E2', onPress: () => router.push('/client/security') },
+    { id: 4, title: 'Trợ giúp', icon: 'help-circle-outline', color: '#3B82F6', bg: '#DBEAFE', onPress: () => setShowHelpModal(true) },
+  ];
 
   return (
     <View style={styles.container}>
       {/* Header */}
-      <LinearGradient colors={['#667eea', '#764ba2']} style={styles.header}>
-        <View style={styles.headerContent}>
+      <LinearGradient colors={['#22C55E', '#16A34A']} style={styles.header}>
+        <View style={styles.avatarSection}>
           <View style={styles.avatarContainer}>
             {user?.photoURL ? (
               <Image source={{ uri: user.photoURL }} style={styles.avatar} />
             ) : (
-              <View style={styles.avatarPlaceholder}>
-                <Ionicons name="person" size={40} color="white" />
-              </View>
+              <LinearGradient colors={['#fff', '#E5E7EB']} style={styles.avatarPlaceholder}>
+                <Ionicons name="person" size={40} color="#22C55E" />
+              </LinearGradient>
             )}
+            <TouchableOpacity style={styles.editAvatarBtn}>
+              <Ionicons name="camera" size={14} color="#fff" />
+            </TouchableOpacity>
           </View>
+          <Text style={styles.userName}>{user?.displayName || 'Khách hàng'}</Text>
+          <Text style={styles.userEmail}>{user?.email}</Text>
+        </View>
 
-          <Text style={styles.name}>{user?.displayName || 'Khách hàng'}</Text>
-          <Text style={styles.email}>{user?.email}</Text>
+        {/* Stats */}
+        <View style={styles.statsRow}>
+          <View style={styles.statItem}>
+            <Text style={styles.statValue}>{stats.totalOrders}</Text>
+            <Text style={styles.statLabel}>Đơn hàng</Text>
+          </View>
+          <View style={styles.statDivider} />
+          <View style={styles.statItem}>
+            <Text style={styles.statValue}>{stats.completedOrders}</Text>
+            <Text style={styles.statLabel}>Hoàn thành</Text>
+          </View>
+          <View style={styles.statDivider} />
+          <View style={styles.statItem}>
+            <Text style={styles.statValue}>{formatCurrency(stats.totalSpent)}</Text>
+            <Text style={styles.statLabel}>Đã chi</Text>
+          </View>
         </View>
       </LinearGradient>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {/* Stats Cards */}
-        <View style={styles.statsContainer}>
-          <View style={[styles.statCard, { backgroundColor: '#667eea' }]}>
-            <Ionicons name="receipt-outline" size={28} color="white" />
-            <Text style={styles.statValue}>{stats.totalOrders}</Text>
-            <Text style={styles.statLabel}>Đơn hàng</Text>
-          </View>
-
-          <View style={[styles.statCard, { backgroundColor: '#43A047' }]}>
-            <Ionicons name="checkmark-circle-outline" size={28} color="white" />
-            <Text style={styles.statValue}>{stats.completedOrders}</Text>
-            <Text style={styles.statLabel}>Hoàn thành</Text>
-          </View>
-
-          <View style={[styles.statCard, { backgroundColor: '#FFA726' }]}>
-            <Ionicons name="cash-outline" size={28} color="white" />
-            <Text style={styles.statValue}>
-              {stats.totalSpent > 1000000
-                ? `${(stats.totalSpent / 1000000).toFixed(1)}M`
-                : `${(stats.totalSpent / 1000).toFixed(0)}K`}
-            </Text>
-            <Text style={styles.statLabel}>Đã chi</Text>
-          </View>
-        </View>
-
-        {/* Menu Section */}
+        {/* Account Menu */}
         <View style={styles.menuSection}>
           <Text style={styles.menuTitle}>Tài khoản</Text>
-
-          <TouchableOpacity
-            style={styles.menuItem}
-            onPress={() => setShowProfileModal(true)}
-          >
-            <View style={styles.menuItemLeft}>
-              <View style={[styles.menuIcon, { backgroundColor: '#E3F2FD' }]}>
-                <Ionicons name="person-outline" size={22} color="#667eea" />
-              </View>
-              <Text style={styles.menuText}>Thông tin cá nhân</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color="#999" />
-          </TouchableOpacity>
-
-          {/* NEW: Change Password */}
-          <TouchableOpacity
-            style={styles.menuItem}
-            onPress={() => router.push('/client/change-password')}
-          >
-            <View style={styles.menuItemLeft}>
-              <View style={[styles.menuIcon, { backgroundColor: '#F3E5F5' }]}>
-                <Ionicons name="key-outline" size={22} color="#9C27B0" />
-              </View>
-              <Text style={styles.menuText}>Đổi mật khẩu</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color="#999" />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.menuItem}
-            onPress={() => router.push('/client/my-orders')}
-          >
-            <View style={styles.menuItemLeft}>
-              <View style={[styles.menuIcon, { backgroundColor: '#FFF3E0' }]}>
-                <Ionicons name="receipt-outline" size={22} color="#FFA726" />
-              </View>
-              <Text style={styles.menuText}>Đơn hàng của tôi</Text>
-            </View>
-            <View style={styles.menuItemRight}>
-              {stats.totalOrders > 0 && (
-                <View style={styles.orderBadge}>
-                  <Text style={styles.orderBadgeText}>{stats.totalOrders}</Text>
+          {menuItems.map((item) => (
+            <TouchableOpacity key={item.id} style={styles.menuItem} onPress={item.onPress}>
+              <View style={styles.menuItemLeft}>
+                <View style={[styles.menuIcon, { backgroundColor: item.bg }]}>
+                  <Ionicons name={item.icon as any} size={22} color={item.color} />
                 </View>
-              )}
-              <Ionicons name="chevron-forward" size={20} color="#999" />
-            </View>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.menuItem}
-            onPress={() => setShowAddressModal(true)}
-          >
-            <View style={styles.menuItemLeft}>
-              <View style={[styles.menuIcon, { backgroundColor: '#E8F5E9' }]}>
-                <Ionicons name="location-outline" size={22} color="#43A047" />
+                <Text style={styles.menuText}>{item.title}</Text>
               </View>
-              <Text style={styles.menuText}>Địa chỉ giao hàng</Text>
-            </View>
-            <View style={styles.menuItemRight}>
-              {addresses.length > 0 && (
-                <View style={[styles.orderBadge, { backgroundColor: '#43A047' }]}>
-                  <Text style={styles.orderBadgeText}>{addresses.length}</Text>
-                </View>
-              )}
-              <Ionicons name="chevron-forward" size={20} color="#999" />
-            </View>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.menuItem}
-            onPress={() => router.push('/client/favorites')}
-          >
-            <View style={styles.menuItemLeft}>
-              <View style={[styles.menuIcon, { backgroundColor: '#FCE4EC' }]}>
-                <Ionicons name="heart-outline" size={22} color="#E91E63" />
+              <View style={styles.menuItemRight}>
+                {item.badge !== undefined && item.badge > 0 && (
+                  <View style={[styles.badge, { backgroundColor: item.color }]}>
+                    <Text style={styles.badgeText}>{item.badge}</Text>
+                  </View>
+                )}
+                <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
               </View>
-              <Text style={styles.menuText}>Sản phẩm yêu thích</Text>
-            </View>
-            <View style={styles.menuItemRight}>
-              {favoriteCount > 0 && (
-                <View style={[styles.orderBadge, { backgroundColor: '#E91E63' }]}>
-                  <Text style={styles.orderBadgeText}>{favoriteCount}</Text>
-                </View>
-              )}
-              <Ionicons name="chevron-forward" size={20} color="#999" />
-            </View>
-          </TouchableOpacity>
+            </TouchableOpacity>
+          ))}
         </View>
 
-        {/* Settings Section */}
+        {/* Settings Menu */}
         <View style={styles.menuSection}>
           <Text style={styles.menuTitle}>Cài đặt</Text>
-
-          {/* NEW: Notifications */}
-          <TouchableOpacity
-            style={styles.menuItem}
-            onPress={() => router.push('/client/notifications')}
-          >
-            <View style={styles.menuItemLeft}>
-              <View style={[styles.menuIcon, { backgroundColor: '#FFF3E0' }]}>
-                <Ionicons name="notifications-outline" size={22} color="#FFA726" />
-              </View>
-              <Text style={styles.menuText}>Thông báo</Text>
-            </View>
-            <View style={styles.menuItemRight}>
-              {unreadCount > 0 && (
-                <View style={[styles.orderBadge, { backgroundColor: '#FF6B6B' }]}>
-                  <Text style={styles.orderBadgeText}>{unreadCount}</Text>
+          {settingsItems.map((item) => (
+            <TouchableOpacity key={item.id} style={styles.menuItem} onPress={item.onPress}>
+              <View style={styles.menuItemLeft}>
+                <View style={[styles.menuIcon, { backgroundColor: item.bg }]}>
+                  <Ionicons name={item.icon as any} size={22} color={item.color} />
                 </View>
-              )}
-              <Ionicons name="chevron-forward" size={20} color="#999" />
-            </View>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.menuItem}
-            onPress={() => setShowSettingsModal(true)}
-          >
-            <View style={styles.menuItemLeft}>
-              <View style={[styles.menuIcon, { backgroundColor: '#F3E5F5' }]}>
-                <Ionicons name="settings-outline" size={22} color="#9C27B0" />
+                <Text style={styles.menuText}>{item.title}</Text>
               </View>
-              <Text style={styles.menuText}>Cài đặt thông báo</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color="#999" />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.menuItem}
-            onPress={() => setShowHelpModal(true)}
-          >
-            <View style={styles.menuItemLeft}>
-              <View style={[styles.menuIcon, { backgroundColor: '#E3F2FD' }]}>
-                <Ionicons name="help-circle-outline" size={22} color="#2196F3" />
+              <View style={styles.menuItemRight}>
+                {item.badge !== undefined && item.badge > 0 && (
+                  <View style={[styles.badge, { backgroundColor: '#EF4444' }]}>
+                    <Text style={styles.badgeText}>{item.badge}</Text>
+                  </View>
+                )}
+                <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
               </View>
-              <Text style={styles.menuText}>Trợ giúp</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color="#999" />
-          </TouchableOpacity>
+            </TouchableOpacity>
+          ))}
         </View>
 
-        {/* Logout Button */}
-        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-          <LinearGradient
-            colors={['#FF6B6B', '#FF8E8E']}
-            style={styles.logoutGradient}
-          >
-            <Ionicons name="log-out-outline" size={22} color="white" />
+        {/* Logout */}
+        <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
+          <LinearGradient colors={['#EF4444', '#DC2626']} style={styles.logoutGradient}>
+            <Ionicons name="log-out-outline" size={22} color="#fff" />
             <Text style={styles.logoutText}>Đăng xuất</Text>
           </LinearGradient>
         </TouchableOpacity>
 
+        <Text style={styles.version}>Phiên bản 1.0.0</Text>
         <View style={{ height: 40 }} />
       </ScrollView>
 
-      {/* Profile Edit Modal */}
+      {/* Profile Modal */}
       <Modal visible={showProfileModal} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Thông tin cá nhân</Text>
               <TouchableOpacity onPress={() => setShowProfileModal(false)}>
-                <Ionicons name="close" size={24} color="#666" />
+                <Ionicons name="close" size={24} color="#6B7280" />
               </TouchableOpacity>
             </View>
-
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Họ và tên</Text>
-              <TextInput
-                style={styles.input}
-                value={editName}
-                onChangeText={setEditName}
-                placeholder="Nhập họ và tên"
-              />
+              <TextInput style={styles.input} value={editName} onChangeText={setEditName} placeholder="Nhập họ tên" />
             </View>
-
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Số điện thoại</Text>
-              <TextInput
-                style={styles.input}
-                value={editPhone}
-                onChangeText={setEditPhone}
-                placeholder="Nhập số điện thoại"
-                keyboardType="phone-pad"
-              />
+              <TextInput style={styles.input} value={editPhone} onChangeText={setEditPhone} placeholder="Nhập SĐT" keyboardType="phone-pad" />
             </View>
-
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Email</Text>
-              <TextInput
-                style={[styles.input, styles.inputDisabled]}
-                value={user?.email || ''}
-                editable={false}
-              />
+              <TextInput style={[styles.input, styles.inputDisabled]} value={user?.email || ''} editable={false} />
             </View>
-
-            <TouchableOpacity
-              style={[styles.saveButton, saving && styles.saveButtonDisabled]}
-              onPress={handleSaveProfile}
-              disabled={saving}
-            >
-              <Text style={styles.saveButtonText}>
-                {saving ? 'Đang lưu...' : 'Lưu thay đổi'}
-              </Text>
+            <TouchableOpacity style={[styles.saveBtn, saving && { opacity: 0.6 }]} onPress={handleSaveProfile} disabled={saving}>
+              <LinearGradient colors={['#22C55E', '#16A34A']} style={styles.saveBtnGradient}>
+                <Text style={styles.saveBtnText}>{saving ? 'Đang lưu...' : 'Lưu thay đổi'}</Text>
+              </LinearGradient>
             </TouchableOpacity>
           </View>
         </View>
@@ -536,162 +278,42 @@ export default function ClientProfileScreen() {
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Địa chỉ giao hàng</Text>
               <TouchableOpacity onPress={() => setShowAddressModal(false)}>
-                <Ionicons name="close" size={24} color="#666" />
+                <Ionicons name="close" size={24} color="#6B7280" />
               </TouchableOpacity>
             </View>
-
             <ScrollView showsVerticalScrollIndicator={false}>
-              {/* Existing Addresses */}
               {addresses.map((addr) => (
                 <View key={addr.id} style={styles.addressCard}>
-                  <View style={styles.addressHeader}>
-                    <Text style={styles.addressName}>{addr.name}</Text>
-                    {addr.isDefault && (
-                      <View style={styles.defaultBadge}>
-                        <Text style={styles.defaultBadgeText}>Mặc định</Text>
-                      </View>
-                    )}
+                  <View style={styles.addressCardHeader}>
+                    <Text style={styles.addressCardName}>{addr.name}</Text>
+                    {addr.isDefault && <View style={styles.defaultBadge}><Text style={styles.defaultBadgeText}>Mặc định</Text></View>}
                   </View>
-                  <Text style={styles.addressPhone}>{addr.phone}</Text>
-                  <Text style={styles.addressText}>{addr.address}</Text>
-                  <TouchableOpacity
-                    style={styles.deleteAddressBtn}
-                    onPress={() => handleDeleteAddress(addr.id)}
-                  >
-                    <Ionicons name="trash-outline" size={18} color="#FF6B6B" />
-                    <Text style={styles.deleteAddressText}>Xóa</Text>
+                  <Text style={styles.addressCardPhone}>{addr.phone}</Text>
+                  <Text style={styles.addressCardText}>{addr.address}</Text>
+                  <TouchableOpacity style={styles.deleteBtn} onPress={() => handleDeleteAddress(addr.id)}>
+                    <Ionicons name="trash-outline" size={16} color="#EF4444" />
+                    <Text style={styles.deleteBtnText}>Xóa</Text>
                   </TouchableOpacity>
                 </View>
               ))}
-
-              {/* Add New Address */}
-              <View style={styles.newAddressSection}>
-                <Text style={styles.sectionTitle}>Thêm địa chỉ mới</Text>
-
+              <View style={styles.addAddressSection}>
+                <Text style={styles.addAddressTitle}>Thêm địa chỉ mới</Text>
                 <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Tên người nhận</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={newAddress.name}
-                    onChangeText={(text) =>
-                      setNewAddress({ ...newAddress, name: text })
-                    }
-                    placeholder="Nhập tên người nhận"
-                  />
+                  <TextInput style={styles.input} value={newAddress.name} onChangeText={(t) => setNewAddress({...newAddress, name: t})} placeholder="Tên người nhận" />
                 </View>
-
                 <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Số điện thoại</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={newAddress.phone}
-                    onChangeText={(text) =>
-                      setNewAddress({ ...newAddress, phone: text })
-                    }
-                    placeholder="Nhập số điện thoại"
-                    keyboardType="phone-pad"
-                  />
+                  <TextInput style={styles.input} value={newAddress.phone} onChangeText={(t) => setNewAddress({...newAddress, phone: t})} placeholder="Số điện thoại" keyboardType="phone-pad" />
                 </View>
-
                 <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Địa chỉ chi tiết</Text>
-                  <TextInput
-                    style={[styles.input, styles.textArea]}
-                    value={newAddress.address}
-                    onChangeText={(text) =>
-                      setNewAddress({ ...newAddress, address: text })
-                    }
-                    placeholder="Nhập địa chỉ chi tiết"
-                    multiline
-                    numberOfLines={3}
-                  />
+                  <TextInput style={[styles.input, { height: 80 }]} value={newAddress.address} onChangeText={(t) => setNewAddress({...newAddress, address: t})} placeholder="Địa chỉ chi tiết" multiline />
                 </View>
-
-                <TouchableOpacity
-                  style={styles.saveButton}
-                  onPress={handleAddAddress}
-                >
-                  <Text style={styles.saveButtonText}>Thêm địa chỉ</Text>
+                <TouchableOpacity style={styles.saveBtn} onPress={handleAddAddress}>
+                  <LinearGradient colors={['#22C55E', '#16A34A']} style={styles.saveBtnGradient}>
+                    <Text style={styles.saveBtnText}>Thêm địa chỉ</Text>
+                  </LinearGradient>
                 </TouchableOpacity>
               </View>
             </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Settings Modal */}
-      <Modal visible={showSettingsModal} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Cài đặt thông báo</Text>
-              <TouchableOpacity onPress={() => setShowSettingsModal(false)}>
-                <Ionicons name="close" size={24} color="#666" />
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.settingItem}>
-              <View>
-                <Text style={styles.settingText}>Thông báo đẩy</Text>
-                <Text style={styles.settingDesc}>Nhận thông báo trên thiết bị</Text>
-              </View>
-              <Switch
-                value={settings.notifications}
-                onValueChange={(val) =>
-                  setSettings({ ...settings, notifications: val })
-                }
-                trackColor={{ false: '#ddd', true: '#667eea' }}
-              />
-            </View>
-
-            <View style={styles.settingItem}>
-              <View>
-                <Text style={styles.settingText}>Email thông báo</Text>
-                <Text style={styles.settingDesc}>Nhận thông báo qua email</Text>
-              </View>
-              <Switch
-                value={settings.emailNotifications}
-                onValueChange={(val) =>
-                  setSettings({ ...settings, emailNotifications: val })
-                }
-                trackColor={{ false: '#ddd', true: '#667eea' }}
-              />
-            </View>
-
-            <View style={styles.settingItem}>
-              <View>
-                <Text style={styles.settingText}>Cập nhật đơn hàng</Text>
-                <Text style={styles.settingDesc}>Thông báo về trạng thái đơn hàng</Text>
-              </View>
-              <Switch
-                value={settings.orderUpdates}
-                onValueChange={(val) =>
-                  setSettings({ ...settings, orderUpdates: val })
-                }
-                trackColor={{ false: '#ddd', true: '#667eea' }}
-              />
-            </View>
-
-            <View style={styles.settingItem}>
-              <View>
-                <Text style={styles.settingText}>Khuyến mãi</Text>
-                <Text style={styles.settingDesc}>Nhận thông báo về ưu đãi</Text>
-              </View>
-              <Switch
-                value={settings.promotions}
-                onValueChange={(val) =>
-                  setSettings({ ...settings, promotions: val })
-                }
-                trackColor={{ false: '#ddd', true: '#667eea' }}
-              />
-            </View>
-
-            <TouchableOpacity
-              style={styles.saveButton}
-              onPress={handleSaveSettings}
-            >
-              <Text style={styles.saveButtonText}>Lưu cài đặt</Text>
-            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -703,45 +325,24 @@ export default function ClientProfileScreen() {
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Trợ giúp & Hỗ trợ</Text>
               <TouchableOpacity onPress={() => setShowHelpModal(false)}>
-                <Ionicons name="close" size={24} color="#666" />
+                <Ionicons name="close" size={24} color="#6B7280" />
               </TouchableOpacity>
             </View>
-
-            <ScrollView showsVerticalScrollIndicator={false}>
-              <View style={styles.helpSection}>
-                <View style={styles.helpIcon}>
-                  <Ionicons name="call-outline" size={24} color="#667eea" />
-                </View>
-                <Text style={styles.helpTitle}>Hotline</Text>
-                <Text style={styles.helpText}>1900 1234</Text>
-              </View>
-
-              <View style={styles.helpSection}>
-                <View style={styles.helpIcon}>
-                  <Ionicons name="mail-outline" size={24} color="#667eea" />
-                </View>
-                <Text style={styles.helpTitle}>Email</Text>
-                <Text style={styles.helpText}>support@example.com</Text>
-              </View>
-
-              <View style={styles.helpSection}>
-                <View style={styles.helpIcon}>
-                  <Ionicons name="time-outline" size={24} color="#667eea" />
-                </View>
-                <Text style={styles.helpTitle}>Giờ làm việc</Text>
-                <Text style={styles.helpText}>8:00 - 22:00 (Hàng ngày)</Text>
-              </View>
-
-              <View style={styles.helpSection}>
-                <View style={styles.helpIcon}>
-                  <Ionicons name="chatbubble-outline" size={24} color="#667eea" />
-                </View>
-                <Text style={styles.helpTitle}>FAQ</Text>
-                <Text style={styles.helpText}>
-                  Câu hỏi thường gặp về đơn hàng, thanh toán, và giao hàng
-                </Text>
-              </View>
-            </ScrollView>
+            <View style={styles.helpCard}>
+              <View style={[styles.helpIcon, { backgroundColor: '#DCFCE7' }]}><Ionicons name="call" size={24} color="#22C55E" /></View>
+              <Text style={styles.helpTitle}>Hotline</Text>
+              <Text style={styles.helpText}>1900 1234</Text>
+            </View>
+            <View style={styles.helpCard}>
+              <View style={[styles.helpIcon, { backgroundColor: '#DBEAFE' }]}><Ionicons name="mail" size={24} color="#3B82F6" /></View>
+              <Text style={styles.helpTitle}>Email</Text>
+              <Text style={styles.helpText}>support@minimart.vn</Text>
+            </View>
+            <View style={styles.helpCard}>
+              <View style={[styles.helpIcon, { backgroundColor: '#FEF3C7' }]}><Ionicons name="time" size={24} color="#F59E0B" /></View>
+              <Text style={styles.helpTitle}>Giờ làm việc</Text>
+              <Text style={styles.helpText}>8:00 - 22:00 (Hàng ngày)</Text>
+            </View>
           </View>
         </View>
       </Modal>
@@ -750,275 +351,58 @@ export default function ClientProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f5f6fa' },
-
-  /* ===== HEADER ===== */
-  header: {
-    paddingTop: 60,
-    paddingBottom: 32,
-    borderBottomLeftRadius: 30,
-    borderBottomRightRadius: 30,
-  },
-  headerContent: { alignItems: 'center', paddingHorizontal: 20 },
-  avatarContainer: { marginBottom: 16 },
-  avatar: {
-    width: 90,
-    height: 90,
-    borderRadius: 45,
-    borderWidth: 4,
-    borderColor: 'white',
-  },
-  avatarPlaceholder: {
-    width: 90,
-    height: 90,
-    borderRadius: 45,
-    backgroundColor: 'rgba(255,255,255,0.3)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 4,
-    borderColor: 'white',
-  },
-  name: { fontSize: 22, fontWeight: '700', color: 'white' },
-  email: { fontSize: 14, color: 'rgba(255,255,255,0.9)' },
-
-  content: { flex: 1, marginTop: -20 },
-
-  /* ===== STATS ===== */
-  statsContainer: {
-    flexDirection: 'row',
-    paddingHorizontal: 20,
-    gap: 12,
-    marginBottom: 24,
-  },
-  statCard: {
-    flex: 1,
-    padding: 16,
-    borderRadius: 16,
-    alignItems: 'center',
-    elevation: 5,
-  },
-  statValue: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: 'white',
-    marginTop: 8,
-  },
-  statLabel: {
-    fontSize: 11,
-    color: 'rgba(255,255,255,0.9)',
-  },
-
-  /* ===== MENU ===== */
-  menuSection: { paddingHorizontal: 20, marginBottom: 16 },
-  menuTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#999',
-    marginBottom: 12,
-    textTransform: 'uppercase',
-  },
-  menuItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 10,
-    elevation: 2,
-  },
+  container: { flex: 1, backgroundColor: '#F8FAFC' },
+  header: { paddingTop: Platform.OS === 'ios' ? 60 : 50, paddingBottom: 24, borderBottomLeftRadius: 28, borderBottomRightRadius: 28 },
+  avatarSection: { alignItems: 'center', marginBottom: 20 },
+  avatarContainer: { position: 'relative', marginBottom: 12 },
+  avatar: { width: 90, height: 90, borderRadius: 45, borderWidth: 4, borderColor: '#fff' },
+  avatarPlaceholder: { width: 90, height: 90, borderRadius: 45, justifyContent: 'center', alignItems: 'center', borderWidth: 4, borderColor: '#fff' },
+  editAvatarBtn: { position: 'absolute', bottom: 0, right: 0, width: 28, height: 28, borderRadius: 14, backgroundColor: '#22C55E', justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: '#fff' },
+  userName: { fontSize: 22, fontWeight: '700', color: '#fff' },
+  userEmail: { fontSize: 14, color: 'rgba(255,255,255,0.85)', marginTop: 2 },
+  statsRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.15)', marginHorizontal: 20, borderRadius: 16, paddingVertical: 16 },
+  statItem: { flex: 1, alignItems: 'center' },
+  statValue: { fontSize: 20, fontWeight: '800', color: '#fff' },
+  statLabel: { fontSize: 12, color: 'rgba(255,255,255,0.8)', marginTop: 2 },
+  statDivider: { width: 1, height: 30, backgroundColor: 'rgba(255,255,255,0.3)' },
+  content: { flex: 1, paddingHorizontal: 20, paddingTop: 20 },
+  menuSection: { marginBottom: 24 },
+  menuTitle: { fontSize: 13, fontWeight: '700', color: '#9CA3AF', marginBottom: 12, textTransform: 'uppercase', letterSpacing: 0.5 },
+  menuItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fff', padding: 14, borderRadius: 14, marginBottom: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
   menuItemLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  menuIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  menuText: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: '#1a1a1a',
-  },
+  menuIcon: { width: 44, height: 44, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
+  menuText: { fontSize: 15, fontWeight: '600', color: '#1F2937' },
   menuItemRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-
-  orderBadge: {
-    backgroundColor: '#FF6B6B',
-    borderRadius: 10,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    minWidth: 22,
-    alignItems: 'center',
-  },
-  orderBadgeText: { color: '#fff', fontSize: 12, fontWeight: '700' },
-
-  /* ===== LOGOUT ===== */
-  logoutButton: {
-    marginHorizontal: 20,
-    marginTop: 24,
-    borderRadius: 14,
-    overflow: 'hidden',
-  },
-  logoutGradient: {
-    paddingVertical: 16,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  logoutText: { color: 'white', fontSize: 16, fontWeight: '700' },
-
-  /* ===== MODAL ===== */
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalContent: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: 24,
-    maxHeight: '90%',
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 20,
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#1a1a1a',
-  },
-
-  /* ===== FORM ===== */
-  inputGroup: { marginBottom: 16 },
-  inputLabel: { fontSize: 14, fontWeight: '600', color: '#666' },
-  input: {
-    marginTop: 6,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-    borderRadius: 12,
-    padding: 14,
-    backgroundColor: '#fafafa',
-  },
-  inputDisabled: { backgroundColor: '#eee' },
-  textArea: { height: 80, textAlignVertical: 'top' },
-
-  saveButton: {
-    backgroundColor: '#667eea',
-    padding: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-    marginTop: 10,
-  },
-  saveButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-
-  /* ===== HELP ===== */
-  helpSection: {
-    alignItems: 'center',
-    padding: 20,
-    backgroundColor: '#f8f9fa',
-    borderRadius: 14,
-    marginBottom: 16,
-  },
-  helpIcon: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#fff',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 10,
-    elevation: 3,
-  },
-  helpTitle: { fontSize: 16, fontWeight: '700' },
-  helpText: { fontSize: 14, color: '#666', textAlign: 'center' },
-  /* ===== ADDRESS ===== */
-addressCard: {
-  backgroundColor: '#fff',
-  padding: 16,
-  borderRadius: 14,
-  marginBottom: 12,
-  elevation: 2,
-},
-addressHeader: {
-  flexDirection: 'row',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-},
-addressName: {
-  fontSize: 15,
-  fontWeight: '700',
-  color: '#1a1a1a',
-},
-defaultBadge: {
-  backgroundColor: '#43A047',
-  borderRadius: 8,
-  paddingHorizontal: 8,
-  paddingVertical: 2,
-},
-defaultBadgeText: {
-  color: 'white',
-  fontSize: 11,
-  fontWeight: '700',
-},
-addressPhone: {
-  marginTop: 6,
-  fontSize: 13,
-  color: '#555',
-},
-addressText: {
-  marginTop: 4,
-  fontSize: 14,
-  color: '#333',
-},
-deleteAddressBtn: {
-  flexDirection: 'row',
-  alignItems: 'center',
-  gap: 6,
-  marginTop: 10,
-},
-deleteAddressText: {
-  color: '#FF6B6B',
-  fontSize: 14,
-  fontWeight: '600',
-},
-
-/* ===== ADD NEW ADDRESS ===== */
-newAddressSection: {
-  marginTop: 20,
-  paddingTop: 20,
-  borderTopWidth: 1,
-  borderTopColor: '#eee',
-},
-sectionTitle: {
-  fontSize: 16,
-  fontWeight: '700',
-  marginBottom: 12,
-},
-
-/* ===== SETTINGS ===== */
-settingItem: {
-  flexDirection: 'row',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  paddingVertical: 14,
-  borderBottomWidth: 1,
-  borderBottomColor: '#eee',
-},
-settingText: {
-  fontSize: 15,
-  fontWeight: '600',
-},
-settingDesc: {
-  fontSize: 13,
-  color: '#777',
-  marginTop: 2,
-},
-
+  badge: { borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2, minWidth: 22, alignItems: 'center' },
+  badgeText: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  logoutBtn: { marginTop: 8, borderRadius: 14, overflow: 'hidden' },
+  logoutGradient: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', paddingVertical: 16, gap: 8 },
+  logoutText: { fontSize: 16, fontWeight: '700', color: '#fff' },
+  version: { textAlign: 'center', fontSize: 12, color: '#9CA3AF', marginTop: 20 },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  modalContent: { backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, maxHeight: '85%' },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+  modalTitle: { fontSize: 20, fontWeight: '700', color: '#1F2937' },
+  inputGroup: { marginBottom: 14 },
+  inputLabel: { fontSize: 13, fontWeight: '600', color: '#4B5563', marginBottom: 6 },
+  input: { backgroundColor: '#F9FAFB', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: '#1F2937', borderWidth: 1, borderColor: '#E5E7EB' },
+  inputDisabled: { backgroundColor: '#E5E7EB', color: '#6B7280' },
+  saveBtn: { marginTop: 10, borderRadius: 12, overflow: 'hidden' },
+  saveBtnGradient: { paddingVertical: 14, alignItems: 'center' },
+  saveBtnText: { fontSize: 16, fontWeight: '700', color: '#fff' },
+  addressCard: { backgroundColor: '#F9FAFB', padding: 16, borderRadius: 14, marginBottom: 12 },
+  addressCardHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
+  addressCardName: { fontSize: 15, fontWeight: '700', color: '#1F2937' },
+  defaultBadge: { backgroundColor: '#22C55E', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 },
+  defaultBadgeText: { fontSize: 10, fontWeight: '700', color: '#fff' },
+  addressCardPhone: { fontSize: 13, color: '#6B7280', marginBottom: 4 },
+  addressCardText: { fontSize: 14, color: '#1F2937', lineHeight: 20 },
+  deleteBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 10 },
+  deleteBtnText: { fontSize: 13, fontWeight: '600', color: '#EF4444' },
+  addAddressSection: { marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: '#E5E7EB' },
+  addAddressTitle: { fontSize: 16, fontWeight: '700', color: '#1F2937', marginBottom: 12 },
+  helpCard: { alignItems: 'center', backgroundColor: '#F9FAFB', padding: 20, borderRadius: 16, marginBottom: 12 },
+  helpIcon: { width: 56, height: 56, borderRadius: 28, justifyContent: 'center', alignItems: 'center', marginBottom: 10 },
+  helpTitle: { fontSize: 16, fontWeight: '700', color: '#1F2937' },
+  helpText: { fontSize: 14, color: '#6B7280', marginTop: 2 },
 });

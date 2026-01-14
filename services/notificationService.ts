@@ -1,4 +1,4 @@
-// services/notificationService.ts - Notification Service
+// services/notificationService.ts - Fixed version
 
 import {
   collection,
@@ -12,6 +12,7 @@ import {
   limit,
   onSnapshot,
   Unsubscribe,
+  getDoc,
 } from 'firebase/firestore';
 import { db } from '@/config/firebase';
 import {
@@ -26,42 +27,66 @@ const USER_SETTINGS_COLLECTION = 'userSettings';
 
 /**
  * Create a notification for a user
+ * @param skipSettingsCheck - Bỏ qua kiểm tra settings (dùng cho admin gửi bulk)
  */
 export const createNotification = async (
-  params: CreateNotificationParams
+  params: CreateNotificationParams,
+  skipSettingsCheck: boolean = false
 ): Promise<{ success: boolean; message: string; notificationId?: string }> => {
   try {
-    // Check user notification settings first
-    const settings = await getUserNotificationSettings(params.userId);
+    console.log('📝 Creating notification for user:', params.userId, '| Skip settings:', skipSettingsCheck);
     
-    // Check if user wants this type of notification
-    if (params.type === 'order' && !settings.orderUpdates) {
-      return {
-        success: false,
-        message: 'User has disabled order notifications',
-      };
-    }
-    
-    if (params.type === 'promotion' && !settings.promotions) {
-      return {
-        success: false,
-        message: 'User has disabled promotion notifications',
-      };
+    // Check user notification settings (unless skipped)
+    if (!skipSettingsCheck) {
+      const settings = await getUserNotificationSettings(params.userId);
+      console.log('⚙️ User settings:', settings);
+      
+      // Check if user wants this type of notification
+      if (!settings.notifications) {
+        console.log('❌ User disabled all notifications');
+        return {
+          success: false,
+          message: 'User has disabled all notifications',
+        };
+      }
+
+      if (params.type === 'order' && !settings.orderUpdates) {
+        console.log('❌ User disabled order notifications');
+        return {
+          success: false,
+          message: 'User has disabled order notifications',
+        };
+      }
+      
+      if (params.type === 'promotion' && !settings.promotions) {
+        console.log('❌ User disabled promotion notifications');
+        return {
+          success: false,
+          message: 'User has disabled promotion notifications',
+        };
+      }
     }
 
-    const notificationData: Omit<Notification, 'id'> = {
+    // Build notification data
+    const notificationData: Record<string, any> = {
       userId: params.userId,
       title: params.title,
       body: params.body,
       type: params.type,
-      orderId: params.orderId,
       isRead: false,
       createdAt: new Date(),
     };
 
+    // Only add orderId if it's provided
+    if (params.orderId) {
+      notificationData.orderId = params.orderId;
+    }
+
+    console.log('📤 Saving notification:', notificationData);
+
     const docRef = await addDoc(collection(db, NOTIFICATIONS_COLLECTION), notificationData);
 
-    console.log('✅ Notification created:', docRef.id);
+    console.log('✅ Notification created:', docRef.id, 'for user:', params.userId);
 
     return {
       success: true,
@@ -78,30 +103,65 @@ export const createNotification = async (
 };
 
 /**
- * Send notification to multiple users
+ * Send notification to multiple users (Admin function)
+ * Bỏ qua settings check vì admin gửi = quan trọng
  */
 export const sendBulkNotifications = async (
   params: SendBulkNotificationParams
-): Promise<{ success: boolean; message: string; sent: number }> => {
+): Promise<{ success: boolean; message: string; sent: number; failed: number }> => {
   try {
     let sentCount = 0;
+    let failedCount = 0;
+    const errors: string[] = [];
 
-    const promises = params.userIds.map(async (userId) => {
-      const result = await createNotification({
-        userId,
-        title: params.title,
-        body: params.body,
-        type: params.type,
-      });
-      if (result.success) sentCount++;
-    });
+    console.log('📬 ========== BULK NOTIFICATION START ==========');
+    console.log('📬 Sending to', params.userIds.length, 'users');
+    console.log('📬 Title:', params.title);
+    console.log('📬 Type:', params.type);
+    console.log('📋 User IDs:', params.userIds);
 
-    await Promise.all(promises);
+    // Gửi tuần tự để dễ debug
+    for (let i = 0; i < params.userIds.length; i++) {
+      const userId = params.userIds[i];
+      console.log(`\n--- [${i + 1}/${params.userIds.length}] Processing user: ${userId} ---`);
+      
+      try {
+        const result = await createNotification(
+          {
+            userId,
+            title: params.title,
+            body: params.body,
+            type: params.type,
+          },
+          true // SKIP settings check for admin bulk send
+        );
+        
+        if (result.success) {
+          sentCount++;
+          console.log(`✅ [${i + 1}] Success for ${userId}`);
+        } else {
+          failedCount++;
+          errors.push(`${userId}: ${result.message}`);
+          console.log(`❌ [${i + 1}] Failed for ${userId}: ${result.message}`);
+        }
+      } catch (err: any) {
+        failedCount++;
+        errors.push(`${userId}: ${err.message}`);
+        console.error(`❌ [${i + 1}] Error for ${userId}:`, err);
+      }
+    }
+
+    console.log('\n📬 ========== BULK NOTIFICATION END ==========');
+    console.log(`📊 Results: Sent ${sentCount}, Failed ${failedCount}`);
+    if (errors.length > 0) {
+      console.log('❌ Errors:', errors);
+    }
 
     return {
-      success: true,
-      message: `Sent ${sentCount} notifications`,
+      success: sentCount > 0,
+      message: `Đã gửi ${sentCount} thông báo${failedCount > 0 ? `, ${failedCount} thất bại` : ''}`,
       sent: sentCount,
+      failed: failedCount,
     };
   } catch (error) {
     console.error('❌ Error sending bulk notifications:', error);
@@ -109,6 +169,7 @@ export const sendBulkNotifications = async (
       success: false,
       message: 'Failed to send bulk notifications',
       sent: 0,
+      failed: params.userIds.length,
     };
   }
 };
@@ -121,6 +182,8 @@ export const getUserNotifications = async (
   limitCount: number = 50
 ): Promise<Notification[]> => {
   try {
+    console.log('🔍 Getting notifications for user:', userId);
+    
     const q = query(
       collection(db, NOTIFICATIONS_COLLECTION),
       where('userId', '==', userId),
@@ -129,6 +192,8 @@ export const getUserNotifications = async (
     );
 
     const snapshot = await getDocs(q);
+    console.log('📬 Found', snapshot.size, 'notifications');
+    
     return snapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data(),
@@ -207,6 +272,8 @@ export const subscribeToNotifications = (
   userId: string,
   callback: (notifications: Notification[]) => void
 ): Unsubscribe => {
+  console.log('🔔 Subscribing to notifications for user:', userId);
+  
   const q = query(
     collection(db, NOTIFICATIONS_COLLECTION),
     where('userId', '==', userId),
@@ -220,7 +287,10 @@ export const subscribeToNotifications = (
       ...doc.data(),
     })) as Notification[];
     
+    console.log('📬 Real-time update:', notifications.length, 'notifications for user:', userId);
     callback(notifications);
+  }, (error) => {
+    console.error('❌ Snapshot error:', error);
   });
 };
 
@@ -232,18 +302,22 @@ export const getUserNotificationSettings = async (
 ): Promise<NotificationSettings> => {
   try {
     const docRef = doc(db, USER_SETTINGS_COLLECTION, userId);
-    const docSnap = await getDocs(query(collection(db, USER_SETTINGS_COLLECTION), where('__name__', '==', userId)));
+    const docSnap = await getDoc(docRef);
     
-    if (!docSnap.empty) {
-      return docSnap.docs[0].data() as NotificationSettings;
+    if (docSnap.exists()) {
+      const data = docSnap.data() as NotificationSettings;
+      console.log('⚙️ Found settings for user:', userId, data);
+      return data;
     }
 
+    console.log('⚙️ No settings found, using defaults for user:', userId);
+    
     // Default settings
     return {
       notifications: true,
       emailNotifications: true,
       orderUpdates: true,
-      promotions: false,
+      promotions: true,
     };
   } catch (error) {
     console.error('❌ Error getting notification settings:', error);
@@ -251,7 +325,7 @@ export const getUserNotificationSettings = async (
       notifications: true,
       emailNotifications: true,
       orderUpdates: true,
-      promotions: false,
+      promotions: true,
     };
   }
 };

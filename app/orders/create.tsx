@@ -150,6 +150,7 @@ export default function CreateOrderScreen() {
         paymentMethod,
         status: 'pending',
         note: note || undefined,
+        createdAt: new Date(),  
       };
 
       const orderId = await createOrder(orderData);

@@ -1,4 +1,5 @@
-// types/order.ts
+// types/order.ts - Updated with shipping & voucherCode fields
+
 export type OrderStatus = 
   | 'pending' 
   | 'confirmed' 
@@ -25,7 +26,9 @@ export interface Order {
   address?: string;
   items: OrderItem[];
   subtotal: number;
+  shipping: number;
   discount: number;
+  voucherCode?: string;
   total: number;
   paymentMethod: 'cash' | 'transfer' | 'card';
   status: OrderStatus;

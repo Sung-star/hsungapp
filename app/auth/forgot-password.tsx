@@ -38,7 +38,7 @@ export default function ForgotPasswordScreen() {
     try {
       const result = await sendOTP({
         email: email.toLowerCase(),
-        type: 'password-reset',
+        type: 'password_reset',
       });
 
       if (result.success) {

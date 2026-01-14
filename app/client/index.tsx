@@ -1,4 +1,5 @@
-// app/client/index.tsx - ✅ UPDATED WITH CROSS-PLATFORM ALERTS
+// app/client/index.tsx - 🎨 REDESIGNED Fresh Market Theme (FIXED)
+
 import { auth, db } from '@/config/firebase';
 import { useCart } from '@/contexts/CartContext';
 import { logout } from '@/services/authService';
@@ -7,7 +8,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { collection, getDocs, limit, query, orderBy } from 'firebase/firestore';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
+import { useNotifications } from '@/hooks/useNotifications'; // ✅ THÊM IMPORT
+import FloatingChatButton from '@/components/chat/FloatingChatButton'; // ✅ Chat Button chỉ ở trang chủ
+
 import {
   ActivityIndicator,
   Image,
@@ -17,16 +21,43 @@ import {
   TouchableOpacity,
   View,
   RefreshControl,
+  Dimensions,
+  Animated,
+  Platform,
 } from 'react-native';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const CARD_WIDTH = (SCREEN_WIDTH - 48) / 2;
 
 interface Product {
   id: string;
   name: string;
   price: number;
+  originalPrice?: number;
   category: string;
   stock: number;
   imageUrl?: string;
   description?: string;
+  isHot?: boolean;
+  isNew?: boolean;
+  discount?: number;
+}
+
+interface Banner {
+  id: number;
+  title: string;
+  subtitle: string;
+  colors: readonly [string, string]; // ✅ FIX: Tuple type
+  emoji: string;
+  buttonText: string;
+}
+
+interface Category {
+  id: number;
+  name: string;
+  icon: string;
+  colors: readonly [string, string]; // ✅ FIX: Tuple type
+  count: number;
 }
 
 export default function ClientHome() {
@@ -35,7 +66,60 @@ export default function ClientHome() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const { addItem, items } = useCart();
+  const { addItem, items, getItemCount } = useCart(); // ✅ FIX: Dùng getItemCount thay vì itemCount
+  const { unreadCount } = useNotifications(); // ✅ THÊM DÒNG NÀY
+  const scrollX = useRef(new Animated.Value(0)).current;
+  const [currentBanner, setCurrentBanner] = useState(0);
+  const bannerRef = useRef<ScrollView>(null);
+
+  // ✅ Tính itemCount từ getItemCount()
+  const itemCount = getItemCount();
+
+  // Banners data - ✅ FIX: colors as tuple
+  const banners: Banner[] = [
+    {
+      id: 1,
+      title: 'Siêu Sale Cuối Tuần',
+      subtitle: 'Giảm đến 50% tất cả sản phẩm',
+      colors: ['#F97316', '#FB923C'] as const,
+      emoji: '🔥',
+      buttonText: 'Mua ngay',
+    },
+    {
+      id: 2,
+      title: 'Thực phẩm tươi sống',
+      subtitle: 'Nhập hàng mới mỗi ngày',
+      colors: ['#22C55E', '#4ADE80'] as const,
+      emoji: '🥬',
+      buttonText: 'Khám phá',
+    },
+    {
+      id: 3,
+      title: 'Freeship đơn từ 99K',
+      subtitle: 'Giao hàng siêu tốc 30 phút',
+      colors: ['#8B5CF6', '#A78BFA'] as const,
+      emoji: '🚀',
+      buttonText: 'Đặt hàng',
+    },
+  ];
+
+  // Categories - ✅ FIX: colors as tuple
+  const categories: Category[] = [
+    { id: 1, name: 'Thực phẩm', icon: '🍎', colors: ['#22C55E', '#16A34A'] as const, count: 24 },
+    { id: 2, name: 'Đồ uống', icon: '🥤', colors: ['#3B82F6', '#2563EB'] as const, count: 18 },
+    { id: 3, name: 'Snack', icon: '🍿', colors: ['#F97316', '#EA580C'] as const, count: 32 },
+    { id: 4, name: 'Sữa', icon: '🥛', colors: ['#EC4899', '#DB2777'] as const, count: 15 },
+    { id: 5, name: 'Vệ sinh', icon: '🧼', colors: ['#8B5CF6', '#7C3AED'] as const, count: 20 },
+    { id: 6, name: 'Gia vị', icon: '🧂', colors: ['#EAB308', '#CA8A04'] as const, count: 28 },
+  ];
+
+  // Quick actions
+  const quickActions = [
+    { id: 1, name: 'Đơn hàng', icon: 'receipt-outline', color: '#3B82F6', bgColor: '#DBEAFE', route: '/client/my-orders' },
+    { id: 2, name: 'Yêu thích', icon: 'heart-outline', color: '#EC4899', bgColor: '#FCE7F3', route: '/client/favorites' },
+    { id: 3, name: 'Voucher', icon: 'ticket-outline', color: '#F97316', bgColor: '#FFEDD5', route: '/client/vouchers' },
+    { id: 4, name: 'Hỗ trợ', icon: 'chatbubble-ellipses-outline', color: '#22C55E', bgColor: '#DCFCE7', route: '/client/chat' },
+  ];
 
   useEffect(() => {
     const user = auth.currentUser;
@@ -45,22 +129,40 @@ export default function ClientHome() {
     fetchProducts();
   }, []);
 
+  // Auto scroll banner
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const nextIndex = (currentBanner + 1) % banners.length;
+      setCurrentBanner(nextIndex);
+      bannerRef.current?.scrollTo({
+        x: nextIndex * (SCREEN_WIDTH - 40),
+        animated: true,
+      });
+    }, 4000);
+
+    return () => clearInterval(interval);
+  }, [currentBanner]);
+
   const fetchProducts = async () => {
     try {
       const productsRef = collection(db, 'products');
-      const q = query(productsRef, orderBy('createdAt', 'desc'), limit(8));
+      const q = query(productsRef, orderBy('createdAt', 'desc'), limit(10));
       const snapshot = await getDocs(q);
 
-      const productsList: Product[] = snapshot.docs.map(doc => {
+      const productsList: Product[] = snapshot.docs.map((doc, index) => {
         const data = doc.data();
         return {
           id: doc.id,
           name: data.name,
           price: data.price,
+          originalPrice: data.originalPrice || (index % 3 === 0 ? Math.round(data.price * 1.2) : undefined),
           category: data.category,
           stock: data.stock,
           imageUrl: data.imageUrl || '',
           description: data.description || '',
+          isHot: index < 3,
+          isNew: index >= 3 && index < 6,
+          discount: index % 3 === 0 ? 20 : undefined,
         };
       });
 
@@ -122,30 +224,6 @@ export default function ClientHome() {
     );
   };
 
-  const formatPrice = (price: number) =>
-    new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(price);
-
-  const getCategoryIcon = (category: string) => {
-    const icons: { [key: string]: string } = {
-      'Thực phẩm': '🍎',
-      'Đồ uống': '🥤',
-      'Snack': '🍿',
-      'Mỹ phẩm': '💄',
-      'Vệ sinh': '🧼',
-      'Gia dụng': '🏠',
-      'Đồ dùng': '🛒',
-      default: '📦',
-    };
-    return icons[category] || icons.default;
-  };
-
-  const categories = [
-    { id: 1, name: 'Thực phẩm', icon: '🍎', color: '#2ecc71' },
-    { id: 2, name: 'Đồ uống', icon: '🥤', color: '#3498db' },
-    { id: 3, name: 'Snack', icon: '🍿', color: '#f39c12' },
-    { id: 4, name: 'Vệ sinh', icon: '🧼', color: '#9b59b6' },
-  ];
-
   const handleCategoryPress = (categoryName: string) => {
     router.push({
       pathname: '/client/products',
@@ -153,186 +231,335 @@ export default function ClientHome() {
     });
   };
 
+  const handleQuickAction = (action: typeof quickActions[0]) => {
+    if (action.route) {
+      router.push(action.route as any);
+    } else {
+      showAlert('Thông báo', 'Tính năng đang phát triển');
+    }
+  };
+
+  const formatPrice = (price: number) =>
+    new Intl.NumberFormat('vi-VN').format(price) + 'đ';
+
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Chào buổi sáng';
+    if (hour < 18) return 'Chào buổi chiều';
+    return 'Chào buổi tối';
+  };
+
   return (
     <View style={styles.container}>
-      <LinearGradient colors={['#667eea', '#764ba2']} style={styles.header}>
-        <View style={styles.headerContent}>
-          <View>
-            <Text style={styles.greeting}>Xin chào! 👋</Text>
-            <Text style={styles.userName}>{userName}</Text>
-          </View>
-          <View style={styles.headerActions}>
-            <TouchableOpacity 
-              style={styles.headerButton} 
-              onPress={() => router.push('/client/order/index')}
-            >
-              <Ionicons name="receipt-outline" size={22} color="white" />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.headerButton} onPress={handleLogout}>
-              <Ionicons name="log-out-outline" size={22} color="white" />
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        <TouchableOpacity 
-          style={styles.searchBar} 
-          onPress={() => router.push('/client/products')}
+      {/* Header */}
+      <View style={styles.header}>
+        <LinearGradient
+          colors={['#22C55E', '#16A34A']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.headerGradient}
         >
-          <Ionicons name="search" size={20} color="#95a5a6" />
-          <Text style={styles.searchPlaceholder}>Tìm kiếm sản phẩm...</Text>
-          <View style={styles.searchIcon}>
-            <Ionicons name="options-outline" size={18} color="#667eea" />
+          <View style={styles.headerTop}>
+            <View style={styles.headerLeft}>
+              <Text style={styles.greeting}>{getGreeting()} 👋</Text>
+              <Text style={styles.userName}>{userName}</Text>
+            </View>
+            <View style={styles.headerRight}>
+              <TouchableOpacity 
+                style={styles.headerIcon}
+                onPress={() => router.push('/client/notifications')}
+              >
+                <Ionicons name="notifications-outline" size={22} color="#fff" />
+                {unreadCount > 0 && (
+                  <View style={styles.notificationBadge}>
+                    <Text style={styles.notificationBadgeText}>
+                      {unreadCount > 99 ? '99+' : unreadCount}
+                    </Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.headerIcon}
+                onPress={() => router.push('/client/cart')}
+              >
+                <Ionicons name="cart-outline" size={22} color="#fff" />
+                {itemCount > 0 && (
+                  <View style={styles.cartBadge}>
+                    <Text style={styles.cartBadgeText}>{itemCount > 99 ? '99+' : itemCount}</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
-        </TouchableOpacity>
-      </LinearGradient>
 
-      <ScrollView 
-        style={styles.content} 
+          {/* Search Bar */}
+          <TouchableOpacity 
+            style={styles.searchBar}
+            onPress={() => router.push('/client/products')}
+            activeOpacity={0.9}
+          >
+            <View style={styles.searchIconContainer}>
+              <Ionicons name="search" size={20} color="#22C55E" />
+            </View>
+            <Text style={styles.searchPlaceholder}>Tìm kiếm sản phẩm...</Text>
+            <View style={styles.searchFilterIcon}>
+              <Ionicons name="options-outline" size={18} color="#6B7280" />
+            </View>
+          </TouchableOpacity>
+        </LinearGradient>
+      </View>
+
+      <ScrollView
+        style={styles.content}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#667eea']} />
+          <RefreshControl 
+            refreshing={refreshing} 
+            onRefresh={onRefresh} 
+            colors={['#22C55E']}
+            tintColor="#22C55E"
+          />
         }
       >
-        <View style={styles.bannerContainer}>
-          <LinearGradient
-            colors={['#667eea', '#764ba2']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.banner}
+        {/* Banner Carousel */}
+        <View style={styles.bannerSection}>
+          <ScrollView
+            ref={bannerRef}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            onScroll={Animated.event(
+              [{ nativeEvent: { contentOffset: { x: scrollX } } }],
+              { useNativeDriver: false }
+            )}
+            scrollEventThrottle={16}
+            style={styles.bannerScroll}
+            contentContainerStyle={styles.bannerScrollContent}
           >
-            <View style={styles.bannerContent}>
-              <View>
-                <Text style={styles.bannerTitle}>🛒 Siêu thị mini</Text>
-                <Text style={styles.bannerSubtitle}>Mua sắm tiện lợi{'\n'}Giá cả phải chăng</Text>
-                <TouchableOpacity 
-                  style={styles.bannerButton}
-                  onPress={() => router.push('/client/products')}
+            {banners.map((banner) => (
+              <TouchableOpacity
+                key={banner.id}
+                activeOpacity={0.95}
+                onPress={() => router.push('/client/products')}
+              >
+                <LinearGradient
+                  colors={banner.colors}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.bannerCard}
                 >
-                  <Text style={styles.bannerButtonText}>Khám phá ngay</Text>
-                  <Ionicons name="arrow-forward" size={16} color="#667eea" />
-                </TouchableOpacity>
-              </View>
-              <Text style={styles.bannerEmoji}>🛍️</Text>
-            </View>
-          </LinearGradient>
+                  <View style={styles.bannerContent}>
+                    <View style={styles.bannerTextContainer}>
+                      <Text style={styles.bannerTitle}>{banner.title}</Text>
+                      <Text style={styles.bannerSubtitle}>{banner.subtitle}</Text>
+                      <TouchableOpacity style={styles.bannerButton}>
+                        <Text style={styles.bannerButtonText}>{banner.buttonText}</Text>
+                        <Ionicons name="arrow-forward" size={16} color="#fff" />
+                      </TouchableOpacity>
+                    </View>
+                    <Text style={styles.bannerEmoji}>{banner.emoji}</Text>
+                  </View>
+                </LinearGradient>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+          
+          {/* Banner Indicators */}
+          <View style={styles.bannerIndicators}>
+            {banners.map((_, index) => (
+              <View
+                key={index}
+                style={[
+                  styles.bannerDot,
+                  currentBanner === index && styles.bannerDotActive,
+                ]}
+              />
+            ))}
+          </View>
         </View>
 
+        {/* Categories */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Danh mục sản phẩm</Text>
-          <View style={styles.categoriesGrid}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Danh mục</Text>
+            <TouchableOpacity 
+              style={styles.seeAllBtn}
+              onPress={() => router.push('/client/products')}
+            >
+              <Text style={styles.seeAllText}>Xem tất cả</Text>
+              <Ionicons name="chevron-forward" size={16} color="#22C55E" />
+            </TouchableOpacity>
+          </View>
+          
+          <ScrollView 
+            horizontal 
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.categoriesContainer}
+          >
             {categories.map((category) => (
               <TouchableOpacity
                 key={category.id}
                 style={styles.categoryCard}
                 onPress={() => handleCategoryPress(category.name)}
+                activeOpacity={0.8}
               >
                 <LinearGradient
-                  colors={[category.color, category.color + 'dd']}
+                  colors={category.colors}
                   style={styles.categoryGradient}
                 >
                   <Text style={styles.categoryIcon}>{category.icon}</Text>
-                  <Text style={styles.categoryName}>{category.name}</Text>
                 </LinearGradient>
+                <Text style={styles.categoryName}>{category.name}</Text>
+                <Text style={styles.categoryCount}>{category.count} SP</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+
+        {/* Quick Actions */}
+        <View style={styles.section}>
+          <View style={styles.quickActionsGrid}>
+            {quickActions.map((action) => (
+              <TouchableOpacity
+                key={action.id}
+                style={styles.quickActionCard}
+                onPress={() => handleQuickAction(action)}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.quickActionIcon, { backgroundColor: action.bgColor }]}>
+                  <Ionicons name={action.icon as any} size={24} color={action.color} />
+                </View>
+                <Text style={styles.quickActionText}>{action.name}</Text>
               </TouchableOpacity>
             ))}
           </View>
         </View>
 
+        {/* Flash Sale Section */}
         <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <View>
-              <Text style={styles.sectionTitle}>Sản phẩm nổi bật</Text>
-              <Text style={styles.sectionSubtitle}>Được yêu thích nhất</Text>
+          <View style={styles.flashSaleHeader}>
+            <View style={styles.flashSaleTitleContainer}>
+              <LinearGradient
+                colors={['#EF4444', '#F97316']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.flashSaleBadge}
+              >
+                <Ionicons name="flash" size={16} color="#fff" />
+                <Text style={styles.flashSaleTitle}>Flash Sale</Text>
+              </LinearGradient>
+              <View style={styles.countdownContainer}>
+                <Text style={styles.countdownLabel}>Kết thúc sau:</Text>
+                <View style={styles.countdownTimer}>
+                  <View style={styles.countdownBox}>
+                    <Text style={styles.countdownNumber}>02</Text>
+                  </View>
+                  <Text style={styles.countdownSeparator}>:</Text>
+                  <View style={styles.countdownBox}>
+                    <Text style={styles.countdownNumber}>45</Text>
+                  </View>
+                  <Text style={styles.countdownSeparator}>:</Text>
+                  <View style={styles.countdownBox}>
+                    <Text style={styles.countdownNumber}>30</Text>
+                  </View>
+                </View>
+              </View>
             </View>
             <TouchableOpacity 
-              style={styles.seeAllButton}
+              style={styles.seeAllBtn}
               onPress={() => router.push('/client/products')}
             >
-              <Text style={styles.seeAll}>Xem tất cả</Text>
-              <Ionicons name="arrow-forward" size={16} color="#667eea" />
+              <Text style={styles.seeAllText}>Xem tất cả</Text>
+              <Ionicons name="chevron-forward" size={16} color="#22C55E" />
             </TouchableOpacity>
           </View>
 
           {loading ? (
             <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color="#667eea" />
+              <ActivityIndicator size="large" color="#22C55E" />
               <Text style={styles.loadingText}>Đang tải sản phẩm...</Text>
             </View>
-          ) : products.length === 0 ? (
-            <View style={styles.emptyContainer}>
-              <View style={styles.emptyIcon}>
-                <Ionicons name="cube-outline" size={64} color="#ccc" />
-              </View>
-              <Text style={styles.emptyTitle}>Chưa có sản phẩm</Text>
-              <Text style={styles.emptyText}>Vui lòng quay lại sau</Text>
-            </View>
           ) : (
-            <ScrollView 
-              horizontal 
-              showsHorizontalScrollIndicator={false} 
-              style={styles.productsScroll}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.productsScrollContent}
             >
-              {products.map((product) => (
-                <TouchableOpacity 
-                  key={product.id} 
+              {products.slice(0, 5).map((product) => (
+                <TouchableOpacity
+                  key={product.id}
                   style={styles.productCard}
                   onPress={() => handleProductPress(product.id)}
-                  activeOpacity={0.7}
+                  activeOpacity={0.9}
                 >
+                  {/* Badges */}
+                  <View style={styles.productBadges}>
+                    {product.discount && (
+                      <View style={styles.discountBadge}>
+                        <Text style={styles.discountText}>-{product.discount}%</Text>
+                      </View>
+                    )}
+                    {product.isHot && !product.discount && (
+                      <View style={styles.hotBadge}>
+                        <Ionicons name="flame" size={10} color="#fff" />
+                        <Text style={styles.hotText}>HOT</Text>
+                      </View>
+                    )}
+                  </View>
+
+                  {/* Image */}
                   <View style={styles.productImageContainer}>
                     {product.imageUrl ? (
-                      <Image 
+                      <Image
                         source={{ uri: product.imageUrl }}
                         style={styles.productImage}
                         resizeMode="cover"
                       />
                     ) : (
                       <View style={styles.productPlaceholder}>
-                        <Text style={styles.productPlaceholderIcon}>
-                          {getCategoryIcon(product.category)}
-                        </Text>
-                      </View>
-                    )}
-                    {product.stock === 0 && (
-                      <View style={styles.outOfStockBadge}>
-                        <Text style={styles.outOfStockText}>Hết hàng</Text>
+                        <Ionicons name="image-outline" size={40} color="#D1D5DB" />
                       </View>
                     )}
                   </View>
 
+                  {/* Info */}
                   <View style={styles.productInfo}>
                     <Text style={styles.productCategory}>{product.category}</Text>
-                    <Text style={styles.productName} numberOfLines={2}>
-                      {product.name}
-                    </Text>
-                    <View style={styles.productFooter}>
-                      <View>
-                        <Text style={styles.productPrice}>{formatPrice(product.price)}</Text>
-                        <Text style={styles.productStock}>
-                          <Ionicons 
-                            name={product.stock > 0 ? "checkmark-circle" : "close-circle"} 
-                            size={12} 
-                            color={product.stock > 0 ? "#43A047" : "#EF5350"} 
-                          />
-                          {' '}Còn {product.stock}
+                    <Text style={styles.productName} numberOfLines={2}>{product.name}</Text>
+                    
+                    <View style={styles.priceContainer}>
+                      <Text style={styles.productPrice}>{formatPrice(product.price)}</Text>
+                      {product.originalPrice && (
+                        <Text style={styles.originalPrice}>{formatPrice(product.originalPrice)}</Text>
+                      )}
+                    </View>
+
+                    {/* Stock & Add Button */}
+                    <View style={styles.productActions}>
+                      <View style={styles.stockInfo}>
+                        <View style={[
+                          styles.stockDot,
+                          { backgroundColor: product.stock > 0 ? '#22C55E' : '#EF4444' }
+                        ]} />
+                        <Text style={styles.stockText}>
+                          {product.stock > 0 ? `Còn ${product.stock}` : 'Hết hàng'}
                         </Text>
                       </View>
-                      <TouchableOpacity 
+                      <TouchableOpacity
                         style={[
-                          styles.addToCartIconButton,
-                          product.stock === 0 && styles.addToCartIconButtonDisabled
+                          styles.addToCartBtn,
+                          product.stock === 0 && styles.addToCartBtnDisabled
                         ]}
-                        disabled={product.stock === 0}
                         onPress={(e) => {
                           e.stopPropagation();
                           handleAddToCart(product);
                         }}
+                        disabled={product.stock === 0}
                       >
                         <Ionicons 
-                          name={product.stock > 0 ? "cart-outline" : "close"} 
+                          name="add" 
                           size={20} 
-                          color="white" 
+                          color={product.stock > 0 ? '#fff' : '#9CA3AF'} 
                         />
                       </TouchableOpacity>
                     </View>
@@ -343,127 +570,691 @@ export default function ClientHome() {
           )}
         </View>
 
+        {/* Featured Products */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Tiện ích nhanh</Text>
-          <View style={styles.quickActions}>
-            <TouchableOpacity 
-              style={styles.actionCard}
-              onPress={() => router.push('/client/order/index')}
-            >
-              <View style={[styles.actionIconContainer, { backgroundColor: '#E3F2FD' }]}>
-                <Ionicons name="receipt-outline" size={28} color="#667eea" />
-              </View>
-              <Text style={styles.actionText}>Đơn hàng</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity 
-              style={styles.actionCard}
-              onPress={() => router.push('/client/favorites')}
-            >
-              <View style={[styles.actionIconContainer, { backgroundColor: '#FCE4EC' }]}>
-                <Ionicons name="heart-outline" size={28} color="#E91E63" />
-              </View>
-              <Text style={styles.actionText}>Yêu thích</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity 
-              style={styles.actionCard}
-              onPress={() => showAlert('Khuyến mãi', 'Tính năng đang phát triển')}
-            >
-              <View style={[styles.actionIconContainer, { backgroundColor: '#FFF3E0' }]}>
-                <Ionicons name="pricetag-outline" size={28} color="#FFA726" />
-              </View>
-              <Text style={styles.actionText}>Khuyến mãi</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity 
-              style={styles.actionCard}
-              onPress={() => showAlert('Hỗ trợ', 'Liên hệ: 1900 1234')}
-            >
-              <View style={[styles.actionIconContainer, { backgroundColor: '#E8F5E9' }]}>
-                <Ionicons name="chatbubble-outline" size={28} color="#43A047" />
-              </View>
-              <Text style={styles.actionText}>Hỗ trợ</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        <View style={styles.section}>
-          <View style={styles.infoCard}>
-            <Ionicons name="information-circle" size={24} color="#667eea" />
-            <View style={styles.infoContent}>
-              <Text style={styles.infoTitle}>Miễn phí vận chuyển</Text>
-              <Text style={styles.infoText}>Đơn hàng từ 200.000đ</Text>
+          <View style={styles.sectionHeader}>
+            <View>
+              <Text style={styles.sectionTitle}>Sản phẩm nổi bật</Text>
+              <Text style={styles.sectionSubtitle}>Được yêu thích nhất</Text>
             </View>
+            <TouchableOpacity 
+              style={styles.seeAllBtn}
+              onPress={() => router.push('/client/products')}
+            >
+              <Text style={styles.seeAllText}>Xem tất cả</Text>
+              <Ionicons name="chevron-forward" size={16} color="#22C55E" />
+            </TouchableOpacity>
           </View>
+
+          {!loading && products.length > 0 && (
+            <View style={styles.featuredGrid}>
+              {products.slice(0, 4).map((product) => (
+                <TouchableOpacity
+                  key={product.id}
+                  style={styles.featuredCard}
+                  onPress={() => handleProductPress(product.id)}
+                  activeOpacity={0.9}
+                >
+                  {/* Badge */}
+                  {product.isNew && (
+                    <View style={styles.newBadge}>
+                      <Text style={styles.newBadgeText}>Mới</Text>
+                    </View>
+                  )}
+
+                  {/* Image */}
+                  <View style={styles.featuredImageContainer}>
+                    {product.imageUrl ? (
+                      <Image
+                        source={{ uri: product.imageUrl }}
+                        style={styles.featuredImage}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <View style={styles.featuredPlaceholder}>
+                        <Ionicons name="image-outline" size={32} color="#D1D5DB" />
+                      </View>
+                    )}
+                  </View>
+
+                  {/* Info */}
+                  <View style={styles.featuredInfo}>
+                    <Text style={styles.featuredName} numberOfLines={2}>{product.name}</Text>
+                    <Text style={styles.featuredPrice}>{formatPrice(product.price)}</Text>
+                    
+                    <TouchableOpacity
+                      style={[
+                        styles.featuredAddBtn,
+                        product.stock === 0 && styles.featuredAddBtnDisabled
+                      ]}
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        handleAddToCart(product);
+                      }}
+                      disabled={product.stock === 0}
+                    >
+                      <Ionicons name="cart-outline" size={16} color="#fff" />
+                      <Text style={styles.featuredAddText}>
+                        {product.stock > 0 ? 'Thêm' : 'Hết'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
         </View>
 
-        <View style={{ height: 40 }} />
+        {/* Promo Banner */}
+        <View style={styles.section}>
+          <TouchableOpacity activeOpacity={0.9}>
+            <LinearGradient
+              colors={['#8B5CF6', '#A78BFA']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.promoBanner}
+            >
+              <View style={styles.promoContent}>
+                <Ionicons name="gift-outline" size={32} color="#fff" />
+                <View style={styles.promoTextContainer}>
+                  <Text style={styles.promoTitle}>Miễn phí vận chuyển</Text>
+                  <Text style={styles.promoSubtitle}>Cho đơn hàng từ 200.000đ</Text>
+                </View>
+              </View>
+              <Ionicons name="chevron-forward" size={24} color="rgba(255,255,255,0.7)" />
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
+
+        <View style={{ height: 100 }} />
       </ScrollView>
+
+      {/* Floating Chat Button - CHỈ HIỆN Ở TRANG CHỦ */}
+      <FloatingChatButton />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f5f6fa' },
-  header: { paddingTop: 50, paddingBottom: 20, paddingHorizontal: 20 },
-  headerContent: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-  greeting: { color: 'rgba(255,255,255,0.9)', fontSize: 14 },
-  userName: { color: 'white', fontSize: 24, fontWeight: '700', marginTop: 4 },
-  headerActions: { flexDirection: 'row', gap: 8 },
-  headerButton: { width: 40, height: 40, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
-  searchBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'white', borderRadius: 12, padding: 12, gap: 10 },
-  searchPlaceholder: { flex: 1, color: '#95a5a6', fontSize: 15 },
-  searchIcon: { width: 32, height: 32, backgroundColor: '#f5f6fa', borderRadius: 8, justifyContent: 'center', alignItems: 'center' },
-  content: { flex: 1 },
-  bannerContainer: { padding: 20, paddingBottom: 10 },
-  banner: { borderRadius: 16, padding: 20, minHeight: 140 },
-  bannerContent: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  bannerTitle: { color: 'white', fontSize: 24, fontWeight: '700', marginBottom: 8 },
-  bannerSubtitle: { color: 'rgba(255,255,255,0.9)', fontSize: 14, marginBottom: 16, lineHeight: 20 },
-  bannerButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'white', paddingVertical: 10, paddingHorizontal: 16, borderRadius: 10, alignSelf: 'flex-start', gap: 6 },
-  bannerButtonText: { color: '#667eea', fontWeight: '700', fontSize: 14 },
-  bannerEmoji: { fontSize: 60, opacity: 0.9 },
-  section: { paddingHorizontal: 20, marginBottom: 20 },
-  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-  sectionTitle: { fontSize: 20, fontWeight: '700', color: '#1a1a1a' },
-  sectionSubtitle: { fontSize: 13, color: '#999', marginTop: 2 },
-  seeAllButton: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  seeAll: { color: '#667eea', fontSize: 14, fontWeight: '600' },
-  categoriesGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  categoryCard: { width: '48%', borderRadius: 12, overflow: 'hidden', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 3 },
-  categoryGradient: { padding: 20, alignItems: 'center', justifyContent: 'center', minHeight: 100 },
-  categoryIcon: { fontSize: 36, marginBottom: 8 },
-  categoryName: { color: 'white', fontSize: 15, fontWeight: '600' },
-  loadingContainer: { alignItems: 'center', paddingVertical: 40 },
-  loadingText: { marginTop: 12, color: '#999', fontSize: 14 },
-  emptyContainer: { alignItems: 'center', paddingVertical: 40 },
-  emptyIcon: { width: 100, height: 100, borderRadius: 50, backgroundColor: '#f5f6fa', justifyContent: 'center', alignItems: 'center', marginBottom: 16 },
-  emptyTitle: { fontSize: 18, fontWeight: '700', color: '#1a1a1a', marginBottom: 4 },
-  emptyText: { color: '#999', fontSize: 14 },
-  productsScroll: { marginHorizontal: -20 },
-  productsScrollContent: { paddingHorizontal: 20, gap: 12 },
-  productCard: { backgroundColor: 'white', borderRadius: 16, width: 170, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 3, overflow: 'hidden' },
-  productImageContainer: { position: 'relative' },
-  productImage: { width: '100%', height: 140, backgroundColor: '#f5f6fa' },
-  productPlaceholder: { width: '100%', height: 140, backgroundColor: '#f5f6fa', justifyContent: 'center', alignItems: 'center' },
-  productPlaceholderIcon: { fontSize: 50 },
-  outOfStockBadge: { position: 'absolute', top: 8, right: 8, backgroundColor: '#EF5350', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
-  outOfStockText: { color: 'white', fontSize: 10, fontWeight: '700' },
-  productInfo: { padding: 12 },
-  productCategory: { fontSize: 11, color: '#999', marginBottom: 4 },
-  productName: { fontSize: 14, fontWeight: '600', color: '#1a1a1a', marginBottom: 8, minHeight: 36 },
-  productFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' },
-  productPrice: { fontSize: 16, fontWeight: '700', color: '#667eea', marginBottom: 2 },
-  productStock: { fontSize: 11, color: '#999' },
-  addToCartIconButton: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#667eea', justifyContent: 'center', alignItems: 'center' },
-  addToCartIconButtonDisabled: { backgroundColor: '#bdc3c7' },
-  quickActions: { flexDirection: 'row', gap: 12 },
-  actionCard: { flex: 1, backgroundColor: 'white', borderRadius: 12, padding: 16, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 3, elevation: 2 },
-  actionIconContainer: { width: 50, height: 50, borderRadius: 25, justifyContent: 'center', alignItems: 'center', marginBottom: 8 },
-  actionText: { fontSize: 12, fontWeight: '600', color: '#1a1a1a', textAlign: 'center' },
-  infoCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#E3F2FD', borderRadius: 12, padding: 16, gap: 12 },
-  infoContent: { flex: 1 },
-  infoTitle: { fontSize: 15, fontWeight: '700', color: '#667eea', marginBottom: 2 },
-  infoText: { fontSize: 13, color: '#999' },
+  container: {
+    flex: 1,
+    backgroundColor: '#F8FAFC',
+  },
+  
+  // Header
+  header: {
+    backgroundColor: '#22C55E',
+  },
+  headerGradient: {
+    paddingTop: Platform.OS === 'ios' ? 60 : 50,
+    paddingBottom: 24,
+    paddingHorizontal: 20,
+    borderBottomLeftRadius: 28,
+    borderBottomRightRadius: 28,
+  },
+  headerTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  headerLeft: {},
+  greeting: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.85)',
+    fontWeight: '500',
+  },
+  userName: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#fff',
+    marginTop: 2,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  headerIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  notificationBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    backgroundColor: '#EF4444',
+    borderRadius: 10,
+    minWidth: 18,
+    height: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#22C55E',
+  },
+  notificationBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  cartBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    backgroundColor: '#F97316',
+    borderRadius: 10,
+    minWidth: 18,
+    height: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#22C55E',
+  },
+  cartBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    gap: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 5,
+  },
+  searchIconContainer: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    backgroundColor: '#DCFCE7',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  searchPlaceholder: {
+    flex: 1,
+    fontSize: 15,
+    color: '#9CA3AF',
+  },
+  searchFilterIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    backgroundColor: '#F3F4F6',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  // Content
+  content: {
+    flex: 1,
+  },
+
+  // Banner
+  bannerSection: {
+    paddingTop: 20,
+  },
+  bannerScroll: {},
+  bannerScrollContent: {
+    paddingHorizontal: 20,
+    gap: 12,
+  },
+  bannerCard: {
+    width: SCREEN_WIDTH - 40,
+    borderRadius: 20,
+    padding: 24,
+    minHeight: 160,
+  },
+  bannerContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  bannerTextContainer: {
+    flex: 1,
+    paddingRight: 20,
+  },
+  bannerTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#fff',
+    marginBottom: 8,
+  },
+  bannerSubtitle: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.9)',
+    marginBottom: 16,
+    lineHeight: 20,
+  },
+  bannerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    alignSelf: 'flex-start',
+    gap: 6,
+  },
+  bannerButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  bannerEmoji: {
+    fontSize: 64,
+  },
+  bannerIndicators: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 16,
+    gap: 8,
+  },
+  bannerDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#D1D5DB',
+  },
+  bannerDotActive: {
+    width: 24,
+    backgroundColor: '#22C55E',
+  },
+
+  // Section
+  section: {
+    paddingHorizontal: 20,
+    marginTop: 28,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1F2937',
+  },
+  sectionSubtitle: {
+    fontSize: 13,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  seeAllBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  seeAllText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#22C55E',
+  },
+
+  // Categories
+  categoriesContainer: {
+    gap: 16,
+  },
+  categoryCard: {
+    alignItems: 'center',
+    width: 80,
+  },
+  categoryGradient: {
+    width: 64,
+    height: 64,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  categoryIcon: {
+    fontSize: 28,
+  },
+  categoryName: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#374151',
+    textAlign: 'center',
+  },
+  categoryCount: {
+    fontSize: 11,
+    color: '#9CA3AF',
+    marginTop: 2,
+  },
+
+  // Quick Actions
+  quickActionsGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  quickActionCard: {
+    alignItems: 'center',
+    width: '22%',
+  },
+  quickActionIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  quickActionText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#4B5563',
+    textAlign: 'center',
+  },
+
+  // Flash Sale
+  flashSaleHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  flashSaleTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  flashSaleBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    gap: 4,
+  },
+  flashSaleTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  countdownContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  countdownLabel: {
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  countdownTimer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  countdownBox: {
+    backgroundColor: '#1F2937',
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  countdownNumber: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  countdownSeparator: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#1F2937',
+  },
+
+  // Products Scroll
+  productsScrollContent: {
+    gap: 12,
+  },
+  productCard: {
+    width: 160,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  productBadges: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    zIndex: 10,
+    flexDirection: 'row',
+    gap: 4,
+  },
+  discountBadge: {
+    backgroundColor: '#EF4444',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  discountText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  hotBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F97316',
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+    borderRadius: 6,
+    gap: 2,
+  },
+  hotText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  productImageContainer: {
+    height: 140,
+    backgroundColor: '#F3F4F6',
+  },
+  productImage: {
+    width: '100%',
+    height: '100%',
+  },
+  productPlaceholder: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  productInfo: {
+    padding: 12,
+  },
+  productCategory: {
+    fontSize: 11,
+    color: '#9CA3AF',
+    marginBottom: 4,
+  },
+  productName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 8,
+    minHeight: 36,
+  },
+  priceContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 8,
+  },
+  productPrice: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#22C55E',
+  },
+  originalPrice: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    textDecorationLine: 'line-through',
+  },
+  productActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  stockInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  stockDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  stockText: {
+    fontSize: 11,
+    color: '#6B7280',
+  },
+  addToCartBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: '#22C55E',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  addToCartBtnDisabled: {
+    backgroundColor: '#E5E7EB',
+  },
+
+  // Featured Grid
+  featuredGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  featuredCard: {
+    width: CARD_WIDTH,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    overflow: 'hidden',
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  newBadge: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    backgroundColor: '#8B5CF6',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    zIndex: 10,
+  },
+  newBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  featuredImageContainer: {
+    height: 120,
+    backgroundColor: '#F3F4F6',
+  },
+  featuredImage: {
+    width: '100%',
+    height: '100%',
+  },
+  featuredPlaceholder: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  featuredInfo: {
+    padding: 12,
+  },
+  featuredName: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 6,
+    minHeight: 32,
+  },
+  featuredPrice: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#22C55E',
+    marginBottom: 10,
+  },
+  featuredAddBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#22C55E',
+    paddingVertical: 10,
+    borderRadius: 10,
+    gap: 6,
+  },
+  featuredAddBtnDisabled: {
+    backgroundColor: '#E5E7EB',
+  },
+  featuredAddText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#fff',
+  },
+
+  // Promo Banner
+  promoBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 20,
+    borderRadius: 16,
+  },
+  promoContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+  },
+  promoTextContainer: {},
+  promoTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#fff',
+    marginBottom: 2,
+  },
+  promoSubtitle: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.85)',
+  },
+
+  // Loading
+  loadingContainer: {
+    paddingVertical: 40,
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: '#6B7280',
+  },
 });
