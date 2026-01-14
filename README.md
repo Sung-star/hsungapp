@@ -1,50 +1,119 @@
-# Welcome to your Expo app 👋
+# MyApp2 - Ứng dụng Thương mại điện tử
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Đây là một ứng dụng di động thương mại điện tử được xây dựng bằng React Native (Expo) và Firebase. Ứng dụng được thiết kế để phục vụ cả **Khách hàng** và **Người bán** (Quản trị viên) với một bộ tính năng phong phú và giao diện người dùng hiện đại.
 
-## Get started
+## Tính năng chính
 
-1. Install dependencies
+### Dành cho Khách hàng
 
-   ```bash
-   npm install
-   ```
+-   **Trang chủ và Sản phẩm:** Lướt xem các sản phẩm mới, sản phẩm nổi bật và tìm kiếm sản phẩm.
+-   **Giỏ hàng:** Thêm, xóa, và cập nhật số lượng sản phẩm trong giỏ hàng.
+-   **Thanh toán:** Quy trình thanh toán đơn giản với nhiều lựa chọn.
+-   **Quản lý đơn hàng:** Theo dõi trạng thái các đơn hàng đã đặt.
+-   **Tài khoản cá nhân:** Quản lý thông tin cá nhân, địa chỉ, và các cài đặt khác.
+-   **Thông báo:** Nhận thông báo về đơn hàng, khuyến mãi và các cập nhật khác.
+-   **Tương tác:** Đánh giá sản phẩm, trò chuyện trực tiếp với người bán.
 
-2. Start the app
+### Dành cho Người bán / Quản trị viên
 
-   ```bash
-   npx expo start
-   ```
+-   **Bảng điều khiển (Dashboard):** Xem tổng quan về doanh thu, đơn hàng mới và các số liệu thống kê quan trọng.
+-   **Quản lý Sản phẩm:** Thêm, sửa, xóa sản phẩm và quản lý tồn kho.
+-   **Quản lý Đơn hàng:** Xem và xử lý các đơn hàng từ khách hàng.
+-   **Quản lý Vouchers/Khuyến mãi:** Tạo và quản lý các mã giảm giá.
+-   **Trò chuyện (Chat):** Tương tác và hỗ trợ khách hàng trực tiếp qua tin nhắn.
+-   **Quản lý tài khoản:** Cập nhật thông tin cửa hàng và các cài đặt liên quan.
 
-In the output, you'll find options to open the app in a
+## Công nghệ sử dụng
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+-   **Framework:** React Native với Expo (SDK 54)
+-   **Ngôn ngữ:** TypeScript
+-   **Routing (Điều hướng):** Expo Router v6
+-   **Backend:** Firebase (Authentication, Firestore, Cloud Functions, Storage)
+-   **Quản lý trạng thái:** React Context
+-   **UI:** Các component tùy chỉnh xây dựng trên React Native.
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+## Hướng dẫn cài đặt và sử dụng
 
-## Get a fresh project
+### 1. Điều kiện cần có
 
-When you're ready, run:
+-   Node.js (phiên bản 18 trở lên)
+-   npm hoặc yarn
+-   Expo CLI (cài đặt bằng `npm install -g expo-cli`)
 
-```bash
-npm run reset-project
+### 2. Cài đặt
+
+1.  **Clone repository về máy:**
+    ```bash
+    git clone <your-repository-url>
+    cd MyApp2
+    ```
+
+2.  **Cài đặt các dependencies:**
+    ```bash
+    npm install
+    ```
+
+### 3. Cấu hình Firebase
+
+1.  Tạo một dự án mới trên [Firebase Console](https://console.firebase.google.com/).
+2.  Đi đến phần **Project settings** và lấy thông tin cấu hình Firebase cho ứng dụng web.
+3.  Tạo file `config/firebase.ts` và sao chép cấu hình của bạn vào đó.
+4.  Kích hoạt các dịch vụ **Authentication**, **Firestore**, và **Storage** trên Firebase Console.
+
+### 4. Khởi chạy ứng dụng
+
+-   **Chạy server development:**
+    ```bash
+    npm start
+    ```
+    hoặc
+    ```bash
+    npx expo start
+    ```
+
+-   **Chạy trên thiết bị Android:**
+    ```bash
+    npm run android
+    ```
+
+-   **Chạy trên mô phỏng iOS:**
+    ```bash
+    npm run ios
+    ```
+
+-   **Chạy trên trình duyệt Web:**
+    ```bash
+    npm run web
+    ```
+
+## Các lệnh (Scripts) có sẵn
+
+-   `npm start`: Khởi động Expo development server.
+-   `npm run android`: Chạy ứng dụng trên thiết-bị/máy-ảo Android.
+-   `npm run ios`: Chạy ứng dụng trên máy ảo iOS.
+-   `npm run web`: Chạy ứng dụng trên trình duyệt web.
+-   `npm run lint`: Kiểm tra lỗi và định dạng code.
+
+## Cấu trúc thư mục
+
+Dự án có cấu trúc thư mục được tổ chức theo chức năng:
+
 ```
-
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
-
-## Learn more
-
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+.
+├── app/              # Nơi chứa toàn bộ mã nguồn của các màn hình
+│   ├── (tabs)/       # Các màn hình trong thanh điều hướng của Người bán
+│   ├── auth/         # Các màn hình xác thực (đăng nhập, đăng ký...)
+│   ├── client/       # Các màn hình trong thanh điều hướng của Khách hàng
+│   ├── components/   # Các component tái sử dụng cho từng màn hình cụ thể
+│   ├── hooks/        # Các custom React hooks
+│   └── ...
+├── assets/           # Chứa các tài sản tĩnh như hình ảnh, fonts...
+├── components/       # Các component UI chung, có thể dùng ở mọi nơi
+├── config/           # Các file cấu hình (ví dụ: firebase.ts)
+├── constants/        # Chứa các hằng số như màu sắc, theme...
+├── contexts/         # Các React Context Provider để quản lý trạng thái
+├── firebase/         # Các services để tương tác với Firebase
+├── functions/        # Mã nguồn cho Firebase Cloud Functions
+├── services/         # Các service chung của ứng dụng
+└── ...
+```

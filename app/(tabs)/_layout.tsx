@@ -1,4 +1,4 @@
-// app/(tabs)/_layout.tsx - Admin Layout (Gift voucher is inside Vouchers tab)
+// app/(tabs)/_layout.tsx - Cấu hình layout cho các tab của màn hình quản trị viên.
 
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -7,23 +7,28 @@ import { View, Text, StyleSheet } from 'react-native';
 import { subscribeToConversations } from '@/services/chatService';
 
 export default function TabLayout() {
+  // State để lưu số lượng tin nhắn chưa đọc
   const [unreadChats, setUnreadChats] = useState(0);
 
+  // Sử dụng useEffect để lắng nghe sự kiện tin nhắn mới trong thời gian thực
   useEffect(() => {
+    // Gọi service để đăng ký lắng nghe các cuộc hội thoại
     const unsubscribe = subscribeToConversations((convs) => {
+      // Tính tổng số tin nhắn chưa đọc từ tất cả các cuộc hội thoại
       const unread = convs.reduce((sum, c) => sum + c.adminUnread, 0);
       setUnreadChats(unread);
     });
 
+    // Hủy đăng ký lắng nghe khi component bị unmount
     return () => unsubscribe();
   }, []);
 
   return (
     <Tabs
       screenOptions={{
-        headerShown: false,
-        tabBarActiveTintColor: '#22C55E',
-        tabBarInactiveTintColor: '#9CA3AF',
+        headerShown: false, // Ẩn header mặc định của các màn hình
+        tabBarActiveTintColor: '#22C55E', // Màu sắc cho tab được chọn
+        tabBarInactiveTintColor: '#9CA3AF', // Màu sắc cho tab không được chọn
         tabBarStyle: {
           backgroundColor: 'white',
           borderTopWidth: 1,
@@ -38,7 +43,7 @@ export default function TabLayout() {
         },
       }}
     >
-      {/* ===== TAB 1: Dashboard ===== */}
+      {/* ===== Tab 1: Bảng điều khiển (Dashboard) ===== */}
       <Tabs.Screen
         name="index"
         options={{
@@ -49,7 +54,7 @@ export default function TabLayout() {
         }}
       />
 
-      {/* ===== TAB 2: Products ===== */}
+      {/* ===== Tab 2: Sản phẩm ===== */}
       <Tabs.Screen
         name="products"
         options={{
@@ -60,7 +65,7 @@ export default function TabLayout() {
         }}
       />
 
-      {/* ===== TAB 3: Orders ===== */}
+      {/* ===== Tab 3: Đơn hàng ===== */}
       <Tabs.Screen
         name="orders"
         options={{
@@ -71,7 +76,7 @@ export default function TabLayout() {
         }}
       />
 
-      {/* ===== TAB 4: Vouchers (includes Gift feature) ===== */}
+      {/* ===== Tab 4: Vouchers / Khuyến mãi ===== */}
       <Tabs.Screen
         name="vouchers"
         options={{
@@ -82,7 +87,7 @@ export default function TabLayout() {
         }}
       />
 
-      {/* ===== TAB 5: Chats with Badge ===== */}
+      {/* ===== Tab 5: Tin nhắn (có hiển thị số tin chưa đọc) ===== */}
       <Tabs.Screen
         name="chats"
         options={{
@@ -90,6 +95,7 @@ export default function TabLayout() {
           tabBarIcon: ({ color, size }) => (
             <View>
               <Ionicons name="chatbubbles" size={size} color={color} />
+              {/* Hiển thị badge nếu có tin nhắn chưa đọc */}
               {unreadChats > 0 && (
                 <View style={styles.badge}>
                   <Text style={styles.badgeText}>
@@ -102,7 +108,7 @@ export default function TabLayout() {
         }}
       />
 
-      {/* ===== TAB 6: Profile ===== */}
+      {/* ===== Tab 6: Cá nhân ===== */}
       <Tabs.Screen
         name="profile"
         options={{
@@ -113,19 +119,20 @@ export default function TabLayout() {
         }}
       />
 
-      {/* ===== HIDDEN ROUTES ===== */}
+      {/* ===== CÁC ROUTE ẨN (không hiển thị trên tab bar) ===== */}
       <Tabs.Screen name="reviews" options={{ href: null }} />
       <Tabs.Screen name="notifications" options={{ href: null }} />
     </Tabs>
   );
 }
 
+// Stylesheet cho component
 const styles = StyleSheet.create({
   badge: {
     position: 'absolute',
     top: -4,
     right: -10,
-    backgroundColor: '#EF4444',
+    backgroundColor: '#EF4444', // Màu đỏ cho badge
     minWidth: 18,
     height: 18,
     borderRadius: 9,
