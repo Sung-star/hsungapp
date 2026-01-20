@@ -1,34 +1,51 @@
-// app/(tabs)/_layout.tsx - Cấu hình layout cho các tab của màn hình quản trị viên.
+// app/(tabs)/_layout.tsx - Admin Layout with Payments Tab
 
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { subscribeToConversations } from '@/services/chatService';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { db } from '@/config/firebase';
 
 export default function TabLayout() {
   // State để lưu số lượng tin nhắn chưa đọc
   const [unreadChats, setUnreadChats] = useState(0);
+  // State để lưu số lượng thanh toán chờ xác nhận
+  const [pendingPayments, setPendingPayments] = useState(0);
 
-  // Sử dụng useEffect để lắng nghe sự kiện tin nhắn mới trong thời gian thực
+  // Lắng nghe tin nhắn mới
   useEffect(() => {
-    // Gọi service để đăng ký lắng nghe các cuộc hội thoại
     const unsubscribe = subscribeToConversations((convs) => {
-      // Tính tổng số tin nhắn chưa đọc từ tất cả các cuộc hội thoại
       const unread = convs.reduce((sum, c) => sum + c.adminUnread, 0);
       setUnreadChats(unread);
     });
 
-    // Hủy đăng ký lắng nghe khi component bị unmount
+    return () => unsubscribe();
+  }, []);
+
+  // Lắng nghe thanh toán chờ xác nhận
+  useEffect(() => {
+    const q = query(
+      collection(db, 'payments'),
+      where('status', '==', 'pending')
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setPendingPayments(snapshot.size);
+    }, (error) => {
+      console.error('Error listening to payments:', error);
+    });
+
     return () => unsubscribe();
   }, []);
 
   return (
     <Tabs
       screenOptions={{
-        headerShown: false, // Ẩn header mặc định của các màn hình
-        tabBarActiveTintColor: '#22C55E', // Màu sắc cho tab được chọn
-        tabBarInactiveTintColor: '#9CA3AF', // Màu sắc cho tab không được chọn
+        headerShown: false,
+        tabBarActiveTintColor: '#22C55E',
+        tabBarInactiveTintColor: '#9CA3AF',
         tabBarStyle: {
           backgroundColor: 'white',
           borderTopWidth: 1,
@@ -43,7 +60,7 @@ export default function TabLayout() {
         },
       }}
     >
-      {/* ===== Tab 1: Bảng điều khiển (Dashboard) ===== */}
+      {/* ===== Tab 1: Dashboard ===== */}
       <Tabs.Screen
         name="index"
         options={{
@@ -76,18 +93,28 @@ export default function TabLayout() {
         }}
       />
 
-      {/* ===== Tab 4: Vouchers / Khuyến mãi ===== */}
+      {/* ===== Tab 4: Thanh toán (MỚI) ===== */}
       <Tabs.Screen
-        name="vouchers"
+        name="payments"
         options={{
-          title: 'Vouchers',
+          title: 'Thanh toán',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="ticket" size={size} color={color} />
+            <View>
+              <Ionicons name="card" size={size} color={color} />
+              {/* Badge hiển thị số thanh toán chờ xác nhận */}
+              {pendingPayments > 0 && (
+                <View style={styles.badge}>
+                  <Text style={styles.badgeText}>
+                    {pendingPayments > 9 ? '9+' : pendingPayments}
+                  </Text>
+                </View>
+              )}
+            </View>
           ),
         }}
       />
 
-      {/* ===== Tab 5: Tin nhắn (có hiển thị số tin chưa đọc) ===== */}
+      {/* ===== Tab 5: Tin nhắn ===== */}
       <Tabs.Screen
         name="chats"
         options={{
@@ -95,7 +122,6 @@ export default function TabLayout() {
           tabBarIcon: ({ color, size }) => (
             <View>
               <Ionicons name="chatbubbles" size={size} color={color} />
-              {/* Hiển thị badge nếu có tin nhắn chưa đọc */}
               {unreadChats > 0 && (
                 <View style={styles.badge}>
                   <Text style={styles.badgeText}>
@@ -119,20 +145,20 @@ export default function TabLayout() {
         }}
       />
 
-      {/* ===== CÁC ROUTE ẨN (không hiển thị trên tab bar) ===== */}
+      {/* ===== HIDDEN ROUTES ===== */}
+      <Tabs.Screen name="vouchers" options={{ href: null }} />
       <Tabs.Screen name="reviews" options={{ href: null }} />
       <Tabs.Screen name="notifications" options={{ href: null }} />
     </Tabs>
   );
 }
 
-// Stylesheet cho component
 const styles = StyleSheet.create({
   badge: {
     position: 'absolute',
     top: -4,
     right: -10,
-    backgroundColor: '#EF4444', // Màu đỏ cho badge
+    backgroundColor: '#EF4444',
     minWidth: 18,
     height: 18,
     borderRadius: 9,

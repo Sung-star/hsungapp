@@ -1,6 +1,6 @@
-// app/client/checkout.tsx - 🎨 REDESIGNED with Voucher Integration
+// app/client/checkout.tsx - FIXED: QRPaymentModal works on mobile
 import { useState, useEffect } from 'react';
-import { View, Text, ScrollView, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Platform } from 'react-native';
+import { View, Text, ScrollView, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Platform, Modal } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -11,7 +11,7 @@ import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firesto
 import { Order } from '@/types/order';
 import { PaymentMethod } from '@/types/payment';
 import { showAlert, showAlertWithOptions } from '@/utils/platformAlert';
-import { createPayment, generateMockQRCode, simulatePaymentProcessing } from '@/services/paymentService';
+import { createPayment, simulatePaymentProcessing } from '@/services/paymentService';
 import PaymentMethodSelector from '@/components/payment/PaymentMethodSelector';
 import QRPaymentModal from '@/components/payment/QRPaymentModal';
 import PaymentStatusModal from '@/components/payment/PaymentStatusModal';
@@ -54,7 +54,7 @@ export default function CheckoutScreen() {
   const [savedAddresses, setSavedAddresses] = useState<SavedAddress[]>([]);
   const [showAddressPicker, setShowAddressPicker] = useState(false);
 
-  // Payment modals
+  // Payment modals - FIXED: Separate state management
   const [showQRModal, setShowQRModal] = useState(false);
   const [showStatusModal, setShowStatusModal] = useState(false);
   const [paymentSuccess, setPaymentSuccess] = useState(false);
@@ -64,6 +64,7 @@ export default function CheckoutScreen() {
     transactionId: string;
     qrCodeUrl: string;
     orderId: string;
+    bankInfo?: any;
   } | null>(null);
 
   useEffect(() => {
@@ -169,6 +170,7 @@ export default function CheckoutScreen() {
     return true;
   };
 
+  // FIXED: handlePlaceOrder - use qrCodeUrl from createPayment response
   const handlePlaceOrder = async () => {
     if (!validateForm()) return;
     setLoading(true);
@@ -200,6 +202,7 @@ export default function CheckoutScreen() {
       };
 
       const orderId = await createOrder(orderData);
+      console.log('✅ Order created:', orderId);
 
       // Confirm voucher usage if applied
       if (appliedVoucher && user) {
@@ -224,16 +227,31 @@ export default function CheckoutScreen() {
           ]
         );
       } else {
+        // FIXED: Create payment and use its qrCodeUrl directly
         const payment = await createPayment(orderId, orderNumber, user?.uid || '', total, paymentMethod);
-        if (payment) {
-          const qrCodeUrl = generateMockQRCode(paymentMethod, total, payment.transactionId || '');
-          setCurrentPayment({ id: payment.id!, transactionId: payment.transactionId || '', qrCodeUrl, orderId });
-          setShowQRModal(true);
+        console.log('✅ Payment created:', payment);
+        
+        if (payment && payment.qrCodeUrl) {
+          // Set payment data with qrCodeUrl from service
+          setCurrentPayment({ 
+            id: payment.id!, 
+            transactionId: payment.transactionId || '', 
+            qrCodeUrl: payment.qrCodeUrl, // Use qrCodeUrl from payment service
+            orderId,
+            bankInfo: payment.bankInfo || null,
+          });
+          
+          // IMPORTANT: Show QR Modal after setting payment data
+          console.log('🔓 Opening QR Modal...');
+          setTimeout(() => {
+            setShowQRModal(true);
+          }, 100); // Small delay to ensure state is set
         } else {
-          showAlert('Lỗi', 'Không thể tạo thanh toán.');
+          showAlert('Lỗi', 'Không thể tạo thanh toán. Vui lòng thử lại.');
         }
       }
     } catch (error: any) {
+      console.error('❌ Error placing order:', error);
       showAlert('Lỗi', error.message || 'Không thể đặt hàng');
     } finally {
       setLoading(false);
@@ -242,20 +260,34 @@ export default function CheckoutScreen() {
 
   const handleConfirmPayment = async () => {
     if (!currentPayment) return;
+    
+    console.log('💳 Confirming payment:', currentPayment.id);
     const result = await simulatePaymentProcessing(currentPayment.id, true);
+    
     setShowQRModal(false);
     setPaymentSuccess(result.success);
     setPaymentMessage(result.success ? 'Cảm ơn bạn đã mua hàng!' : 'Thanh toán không thành công.');
+    
     if (result.success) {
       await updateOrderStatus(currentPayment.orderId, 'confirmed');
       clearCart();
     }
-    setShowStatusModal(true);
+    
+    // Show status modal after closing QR modal
+    setTimeout(() => {
+      setShowStatusModal(true);
+    }, 300);
   };
 
   const handleCancelPayment = () => {
+    console.log('❌ Payment cancelled');
     setShowQRModal(false);
-    showAlert('Đã hủy', 'Bạn đã hủy thanh toán.');
+    setCurrentPayment(null);
+    showAlert('Đã hủy', 'Bạn đã hủy thanh toán. Đơn hàng vẫn được lưu, bạn có thể thanh toán sau.');
+  };
+
+  const handleCloseQRModal = () => {
+    setShowQRModal(false);
   };
 
   if (loadingProfile) {
@@ -321,7 +353,7 @@ export default function CheckoutScreen() {
           </View>
         </View>
 
-        {/* Voucher Section - NEW */}
+        {/* Voucher Section */}
         <View style={styles.section}>
           <View style={styles.sectionTitleRow}>
             <View style={[styles.sectionIcon, { backgroundColor: '#FFEDD5' }]}>
@@ -343,7 +375,6 @@ export default function CheckoutScreen() {
             onRemoveVoucher={handleRemoveVoucher}
           />
 
-          {/* Quick access to voucher list */}
           <TouchableOpacity 
             style={styles.viewVouchersBtn}
             onPress={() => router.push('/client/vouchers')}
@@ -415,7 +446,11 @@ export default function CheckoutScreen() {
           <Text style={styles.totalValue}>{formatPrice(total)}</Text>
         </View>
 
-        <TouchableOpacity style={[styles.placeOrderBtn, loading && styles.placeOrderBtnDisabled]} onPress={handlePlaceOrder} disabled={loading}>
+        <TouchableOpacity 
+          style={[styles.placeOrderBtn, loading && styles.placeOrderBtnDisabled]} 
+          onPress={handlePlaceOrder} 
+          disabled={loading}
+        >
           <LinearGradient colors={['#22C55E', '#16A34A']} style={styles.placeOrderGradient}>
             {loading ? <ActivityIndicator color="#fff" /> : (
               <>
@@ -428,7 +463,12 @@ export default function CheckoutScreen() {
       </View>
 
       {/* Address Picker Modal */}
-      {showAddressPicker && (
+      <Modal
+        visible={showAddressPicker}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowAddressPicker(false)}
+      >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
@@ -439,28 +479,62 @@ export default function CheckoutScreen() {
             </View>
             <ScrollView showsVerticalScrollIndicator={false}>
               {savedAddresses.map((addr) => (
-                <TouchableOpacity key={addr.id} style={[styles.addressCard, address === addr.address && styles.addressCardActive]} onPress={() => handleSelectAddress(addr)}>
+                <TouchableOpacity 
+                  key={addr.id} 
+                  style={[styles.addressCard, address === addr.address && styles.addressCardActive]} 
+                  onPress={() => handleSelectAddress(addr)}
+                >
                   <View style={styles.addressCardHeader}>
                     <Text style={styles.addressCardName}>{addr.name}</Text>
-                    {addr.isDefault && <View style={styles.defaultBadge}><Text style={styles.defaultBadgeText}>Mặc định</Text></View>}
+                    {addr.isDefault && (
+                      <View style={styles.defaultBadge}>
+                        <Text style={styles.defaultBadgeText}>Mặc định</Text>
+                      </View>
+                    )}
                   </View>
                   <Text style={styles.addressCardPhone}>{addr.phone}</Text>
                   <Text style={styles.addressCardText}>{addr.address}</Text>
                   {address === addr.address && (
-                    <View style={styles.checkIcon}><Ionicons name="checkmark-circle" size={24} color="#22C55E" /></View>
+                    <View style={styles.checkIcon}>
+                      <Ionicons name="checkmark-circle" size={24} color="#22C55E" />
+                    </View>
                   )}
                 </TouchableOpacity>
               ))}
             </ScrollView>
           </View>
         </View>
-      )}
+      </Modal>
 
-      {/* Payment Modals */}
-      {currentPayment && (
-        <QRPaymentModal visible={showQRModal} method={paymentMethod} amount={total} transactionId={currentPayment.transactionId} qrCodeUrl={currentPayment.qrCodeUrl} onClose={() => setShowQRModal(false)} onConfirmPayment={handleConfirmPayment} onCancel={handleCancelPayment} />
-      )}
-      <PaymentStatusModal visible={showStatusModal} success={paymentSuccess} message={paymentMessage} transactionId={currentPayment?.transactionId} onClose={() => setShowStatusModal(false)} onViewOrder={() => { setShowStatusModal(false); router.replace(`/client/order/${currentPayment?.orderId}` as any); }} onGoHome={() => { setShowStatusModal(false); router.replace('/client' as any); }} />
+      {/* QR Payment Modal - FIXED: Always render, control with visible prop */}
+      <QRPaymentModal 
+        visible={showQRModal} 
+        method={paymentMethod} 
+        amount={total} 
+        transactionId={currentPayment?.transactionId || ''} 
+        qrCodeUrl={currentPayment?.qrCodeUrl || ''} 
+        bankInfo={currentPayment?.bankInfo}
+        onClose={handleCloseQRModal} 
+        onConfirmPayment={handleConfirmPayment} 
+        onCancel={handleCancelPayment} 
+      />
+
+      {/* Payment Status Modal */}
+      <PaymentStatusModal 
+        visible={showStatusModal} 
+        success={paymentSuccess} 
+        message={paymentMessage} 
+        transactionId={currentPayment?.transactionId} 
+        onClose={() => setShowStatusModal(false)} 
+        onViewOrder={() => { 
+          setShowStatusModal(false); 
+          router.replace(`/client/order/${currentPayment?.orderId}` as any); 
+        }} 
+        onGoHome={() => { 
+          setShowStatusModal(false); 
+          router.replace('/client' as any); 
+        }} 
+      />
     </View>
   );
 }
@@ -493,7 +567,6 @@ const styles = StyleSheet.create({
   input: { backgroundColor: '#F9FAFB', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: '#1F2937', borderWidth: 1, borderColor: '#E5E7EB' },
   textArea: { height: 80, textAlignVertical: 'top' },
 
-  // Voucher
   viewVouchersBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 12, paddingVertical: 10, backgroundColor: '#F0FDF4', borderRadius: 10 },
   viewVouchersBtnText: { fontSize: 13, fontWeight: '600', color: '#22C55E' },
 
@@ -518,7 +591,7 @@ const styles = StyleSheet.create({
   placeOrderGradient: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', paddingVertical: 16, gap: 8 },
   placeOrderText: { fontSize: 17, fontWeight: '700', color: '#fff' },
 
-  modalOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
   modalContent: { backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, maxHeight: '70%' },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
   modalTitle: { fontSize: 18, fontWeight: '700', color: '#1F2937' },

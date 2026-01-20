@@ -1,4 +1,4 @@
-// app/client/order/[id].tsx - Updated with shipping field
+// app/client/order/[id].tsx - FIXED: Shipping calculation synced with checkout
 import { useEffect, useState } from 'react';
 import {
   View,
@@ -13,28 +13,41 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { getOrder } from '@/firebase/orderService';
+import { getPaymentByOrderId } from '@/services/paymentService';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Order } from '@/types/order';
+import { Payment, getPaymentStatusName, getPaymentStatusColor } from '@/types/payment';
+
+// SYNC với checkout.tsx và cart.tsx
+const FREE_SHIPPING_THRESHOLD = 200000;
+const SHIPPING_FEE = 30000;
 
 export default function ClientOrderDetail() {
   const { id } = useLocalSearchParams();
   const router = useRouter();
   const [order, setOrder] = useState<Order | null>(null);
+  const [payment, setPayment] = useState<Payment | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const loadOrder = async () => {
+    const loadData = async () => {
       try {
         setLoading(true);
-        const data = await getOrder(id as string);
-        if (!data) {
+        const orderData = await getOrder(id as string);
+        if (!orderData) {
           Alert.alert('Lỗi', 'Không tìm thấy đơn hàng', [
             { text: 'OK', onPress: () => router.back() },
           ]);
           return;
         }
-        setOrder(data);
+        setOrder(orderData);
+
+        // Load payment info if exists
+        const paymentData = await getPaymentByOrderId(id as string);
+        if (paymentData) {
+          setPayment(paymentData);
+        }
       } catch (err) {
         console.error('Error loading order:', err);
         Alert.alert('Lỗi', 'Không thể tải đơn hàng');
@@ -43,14 +56,11 @@ export default function ClientOrderDetail() {
       }
     };
 
-    if (id) loadOrder();
+    if (id) loadData();
   }, [id]);
 
   const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('vi-VN', {
-      style: 'currency',
-      currency: 'VND',
-    }).format(amount);
+    return new Intl.NumberFormat('vi-VN').format(amount) + 'đ';
   };
 
   const formatDate = (date: Date | null) => {
@@ -66,7 +76,7 @@ export default function ClientOrderDetail() {
 
   const getPaymentMethodText = (method: string) => {
     const methodMap: Record<string, string> = {
-      cash: 'Tiền mặt',
+      cash: 'Tiền mặt (COD)',
       transfer: 'Chuyển khoản',
       card: 'Thẻ',
     };
@@ -115,7 +125,19 @@ export default function ClientOrderDetail() {
   }
 
   const orderStatus = String(order.status);
-  const shippingFee = order.shipping || 0;
+  
+  // Tính subtotal từ items hoặc lấy từ order
+  const calculatedSubtotal = order.subtotal || order.items.reduce((sum, item) => sum + item.total, 0);
+  
+  // FIXED: Tính shipping theo đúng logic checkout
+  // Nếu subtotal >= 200k thì miễn phí, ngược lại 30k
+  const shippingFee = calculatedSubtotal >= FREE_SHIPPING_THRESHOLD ? 0 : SHIPPING_FEE;
+  
+  // Discount
+  const calculatedDiscount = order.discount || 0;
+  
+  // Tổng cộng
+  const calculatedTotal = calculatedSubtotal + shippingFee - calculatedDiscount;
 
   return (
     <View style={styles.container}>
@@ -143,6 +165,42 @@ export default function ClientOrderDetail() {
             </View>
           </View>
         </View>
+
+        {/* Payment Info Card */}
+        {payment && (
+          <View style={styles.card}>
+            <View style={styles.cardHeader}>
+              <Ionicons name="card-outline" size={20} color="#22C55E" />
+              <Text style={styles.cardTitle}>Thông tin thanh toán</Text>
+            </View>
+            
+            <View style={styles.paymentStatusRow}>
+              <Text style={styles.paymentStatusLabel}>Trạng thái:</Text>
+              <View style={[styles.paymentStatusBadge, { backgroundColor: `${getPaymentStatusColor(payment.status)}20` }]}>
+                <View style={[styles.paymentStatusDot, { backgroundColor: getPaymentStatusColor(payment.status) }]} />
+                <Text style={[styles.paymentStatusText, { color: getPaymentStatusColor(payment.status) }]}>
+                  {getPaymentStatusName(payment.status)}
+                </Text>
+              </View>
+            </View>
+
+            {payment.transactionId && (
+              <View style={styles.infoRow}>
+                <Ionicons name="document-text" size={18} color="#6B7280" />
+                <Text style={styles.infoLabel}>Mã GD:</Text>
+                <Text style={styles.infoValueMono}>{payment.transactionId}</Text>
+              </View>
+            )}
+
+            {payment.paidAt && (
+              <View style={styles.infoRow}>
+                <Ionicons name="checkmark-circle" size={18} color="#22C55E" />
+                <Text style={styles.infoLabel}>Thanh toán lúc:</Text>
+                <Text style={styles.infoValue}>{formatDate(payment.paidAt)}</Text>
+              </View>
+            )}
+          </View>
+        )}
 
         {/* Customer Info Card */}
         <View style={styles.card}>
@@ -193,12 +251,13 @@ export default function ClientOrderDetail() {
           ))}
         </View>
 
-        {/* Payment Card */}
+        {/* Payment Summary Card */}
         <View style={styles.card}>
           <View style={styles.cardHeader}>
-            <Ionicons name="card-outline" size={20} color="#22C55E" />
-            <Text style={styles.cardTitle}>Thanh toán</Text>
+            <Ionicons name="receipt-outline" size={20} color="#22C55E" />
+            <Text style={styles.cardTitle}>Chi tiết thanh toán</Text>
           </View>
+          
           <View style={styles.infoRow}>
             <Ionicons name="wallet" size={18} color="#6B7280" />
             <Text style={styles.infoLabel}>Phương thức:</Text>
@@ -208,28 +267,44 @@ export default function ClientOrderDetail() {
           <View style={styles.divider} />
 
           <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Tạm tính:</Text>
-            <Text style={styles.summaryValue}>{formatCurrency(order.subtotal)}</Text>
+            <Text style={styles.summaryLabel}>Tạm tính ({order.items.length} sản phẩm):</Text>
+            <Text style={styles.summaryValue}>{formatCurrency(calculatedSubtotal)}</Text>
           </View>
+          
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>Phí vận chuyển:</Text>
-            <Text style={[styles.summaryValue, shippingFee === 0 && { color: '#22C55E' }]}>
+            <Text style={[styles.summaryValue, shippingFee === 0 && styles.freeShipping]}>
               {shippingFee === 0 ? 'Miễn phí' : formatCurrency(shippingFee)}
             </Text>
           </View>
-          {order.discount > 0 && (
+
+          {/* Thông báo miễn phí ship */}
+          {shippingFee === 0 && (
+            <View style={styles.freeShippingNote}>
+              <Ionicons name="checkmark-circle" size={14} color="#22C55E" />
+              <Text style={styles.freeShippingNoteText}>
+                Đơn hàng từ {formatCurrency(FREE_SHIPPING_THRESHOLD)} được miễn phí vận chuyển
+              </Text>
+            </View>
+          )}
+          
+          {calculatedDiscount > 0 && (
             <View style={styles.summaryRow}>
               <View style={styles.discountLabelRow}>
                 <Ionicons name="ticket" size={16} color="#F97316" />
-                <Text style={styles.discountLabel}>Giảm giá{order.voucherCode ? ` (${order.voucherCode})` : ''}:</Text>
+                <Text style={styles.discountLabel}>
+                  Giảm giá{order.voucherCode ? ` (${order.voucherCode})` : ''}:
+                </Text>
               </View>
-              <Text style={styles.discountValue}>-{formatCurrency(order.discount)}</Text>
+              <Text style={styles.discountValue}>-{formatCurrency(calculatedDiscount)}</Text>
             </View>
           )}
+          
           <View style={styles.divider} />
+          
           <View style={styles.summaryRow}>
             <Text style={styles.totalLabel}>Tổng cộng:</Text>
-            <Text style={styles.totalValue}>{formatCurrency(order.total)}</Text>
+            <Text style={styles.totalValue}>{formatCurrency(calculatedTotal)}</Text>
           </View>
         </View>
 
@@ -314,6 +389,14 @@ const styles = StyleSheet.create({
   infoRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 8 },
   infoLabel: { fontSize: 14, color: '#6B7280', width: 70 },
   infoValue: { flex: 1, fontSize: 14, fontWeight: '600', color: '#1F2937' },
+  infoValueMono: { flex: 1, fontSize: 14, fontWeight: '600', color: '#1F2937', fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
+  
+  // Payment status
+  paymentStatusRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
+  paymentStatusLabel: { fontSize: 14, color: '#6B7280' },
+  paymentStatusBadge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10, gap: 6 },
+  paymentStatusDot: { width: 8, height: 8, borderRadius: 4 },
+  paymentStatusText: { fontSize: 13, fontWeight: '600' },
   
   productItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
   productImage: { width: 56, height: 56, borderRadius: 10, backgroundColor: '#F3F4F6' },
@@ -327,6 +410,9 @@ const styles = StyleSheet.create({
   summaryRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
   summaryLabel: { fontSize: 14, color: '#6B7280' },
   summaryValue: { fontSize: 14, fontWeight: '600', color: '#1F2937' },
+  freeShipping: { color: '#22C55E', fontWeight: '700' },
+  freeShippingNote: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8, marginTop: -4 },
+  freeShippingNoteText: { fontSize: 12, color: '#22C55E' },
   discountLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   discountLabel: { fontSize: 14, color: '#F97316' },
   discountValue: { fontSize: 14, fontWeight: '600', color: '#F97316' },

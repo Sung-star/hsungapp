@@ -1,4 +1,4 @@
-// app/client/_layout.tsx - Client Layout - NO FloatingChatButton here (moved to index.tsx)
+// app/client/_layout.tsx - Client Layout with Payment History
 
 import { Ionicons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
@@ -79,6 +79,7 @@ export default function ClientLayout() {
       <Tabs.Screen name="chat" options={{ href: null }} />
       <Tabs.Screen name="payment" options={{ href: null }} />
       <Tabs.Screen name="payment-result" options={{ href: null }} />
+      <Tabs.Screen name="payment-history" options={{ href: null }} />
       <Tabs.Screen name="write-review" options={{ href: null }} />
     </Tabs>
   );

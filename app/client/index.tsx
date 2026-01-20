@@ -1,29 +1,29 @@
-// app/client/index.tsx - 🎨 REDESIGNED Fresh Market Theme (FIXED)
+// app/client/index.tsx - 🎨 REDESIGNED Fresh Market Theme (FIXED) - DYNAMIC CATEGORIES
 
+import FloatingChatButton from '@/components/chat/FloatingChatButton';
 import { auth, db } from '@/config/firebase';
 import { useCart } from '@/contexts/CartContext';
+import { useNotifications } from '@/hooks/useNotifications';
 import { logout } from '@/services/authService';
 import { showAlert, showConfirmDialog } from '@/utils/platformAlert';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import { collection, getDocs, limit, query, orderBy } from 'firebase/firestore';
-import { useEffect, useState, useRef } from 'react';
-import { useNotifications } from '@/hooks/useNotifications'; // ✅ THÊM IMPORT
-import FloatingChatButton from '@/components/chat/FloatingChatButton'; // ✅ Chat Button chỉ ở trang chủ
+import { collection, getDocs, limit, orderBy, query } from 'firebase/firestore';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   ActivityIndicator,
+  Animated,
+  Dimensions,
   Image,
+  Platform,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
-  RefreshControl,
-  Dimensions,
-  Animated,
-  Platform,
 } from 'react-native';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -47,16 +47,15 @@ interface Banner {
   id: number;
   title: string;
   subtitle: string;
-  colors: readonly [string, string]; // ✅ FIX: Tuple type
+  colors: readonly [string, string];
   emoji: string;
   buttonText: string;
 }
 
 interface Category {
-  id: number;
   name: string;
   icon: string;
-  colors: readonly [string, string]; // ✅ FIX: Tuple type
+  colors: readonly [string, string];
   count: number;
 }
 
@@ -64,18 +63,18 @@ export default function ClientHome() {
   const router = useRouter();
   const [userName, setUserName] = useState('');
   const [products, setProducts] = useState<Product[]>([]);
+  const [allProducts, setAllProducts] = useState<Product[]>([]); // ✅ THÊM: Lưu tất cả sản phẩm
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const { addItem, items, getItemCount } = useCart(); // ✅ FIX: Dùng getItemCount thay vì itemCount
-  const { unreadCount } = useNotifications(); // ✅ THÊM DÒNG NÀY
+  const { addItem, items, getItemCount } = useCart();
+  const { unreadCount } = useNotifications();
   const scrollX = useRef(new Animated.Value(0)).current;
   const [currentBanner, setCurrentBanner] = useState(0);
   const bannerRef = useRef<ScrollView>(null);
 
-  // ✅ Tính itemCount từ getItemCount()
   const itemCount = getItemCount();
 
-  // Banners data - ✅ FIX: colors as tuple
+  // Banners data
   const banners: Banner[] = [
     {
       id: 1,
@@ -95,7 +94,7 @@ export default function ClientHome() {
     },
     {
       id: 3,
-      title: 'Freeship đơn từ 99K',
+      title: 'Freeship đơn từ 200K',
       subtitle: 'Giao hàng siêu tốc 30 phút',
       colors: ['#8B5CF6', '#A78BFA'] as const,
       emoji: '🚀',
@@ -103,15 +102,43 @@ export default function ClientHome() {
     },
   ];
 
-  // Categories - ✅ FIX: colors as tuple
-  const categories: Category[] = [
-    { id: 1, name: 'Thực phẩm', icon: '🍎', colors: ['#22C55E', '#16A34A'] as const, count: 24 },
-    { id: 2, name: 'Đồ uống', icon: '🥤', colors: ['#3B82F6', '#2563EB'] as const, count: 18 },
-    { id: 3, name: 'Snack', icon: '🍿', colors: ['#F97316', '#EA580C'] as const, count: 32 },
-    { id: 4, name: 'Sữa', icon: '🥛', colors: ['#EC4899', '#DB2777'] as const, count: 15 },
-    { id: 5, name: 'Vệ sinh', icon: '🧼', colors: ['#8B5CF6', '#7C3AED'] as const, count: 20 },
-    { id: 6, name: 'Gia vị', icon: '🧂', colors: ['#EAB308', '#CA8A04'] as const, count: 28 },
-  ];
+  // ✅ CATEGORY ICON & COLOR MAPPING
+  const categoryConfig: Record<string, { icon: string; colors: readonly [string, string] }> = {
+    'Thực phẩm': { icon: '🍎', colors: ['#22C55E', '#16A34A'] as const },
+    'Đồ uống': { icon: '🥤', colors: ['#3B82F6', '#2563EB'] as const },
+    'Snack': { icon: '🍿', colors: ['#F97316', '#EA580C'] as const },
+    'Sữa': { icon: '🥛', colors: ['#EC4899', '#DB2777'] as const },
+    'Vệ sinh': { icon: '🧼', colors: ['#8B5CF6', '#7C3AED'] as const },
+    'Gia vị': { icon: '🧂', colors: ['#EAB308', '#CA8A04'] as const },
+    'Bánh kẹo': { icon: '🍪', colors: ['#F472B6', '#EC4899'] as const },
+    'Mì ăn liền': { icon: '🍜', colors: ['#FB923C', '#F97316'] as const },
+    // Default cho các danh mục khác
+    'default': { icon: '📦', colors: ['#6B7280', '#4B5563'] as const },
+  };
+
+  // ✅ DYNAMIC CATEGORIES từ products
+  const categories: Category[] = useMemo(() => {
+    if (allProducts.length === 0) return [];
+
+    // Đếm số lượng sản phẩm theo category
+    const categoryCount = allProducts.reduce((acc, product) => {
+      acc[product.category] = (acc[product.category] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+
+    // Tạo array categories
+    return Object.entries(categoryCount)
+      .map(([name, count]) => {
+        const config = categoryConfig[name] || categoryConfig['default'];
+        return {
+          name,
+          icon: config.icon,
+          colors: config.colors,
+          count,
+        };
+      })
+      .sort((a, b) => b.count - a.count); // Sắp xếp theo số lượng giảm dần
+  }, [allProducts]);
 
   // Quick actions
   const quickActions = [
@@ -145,6 +172,20 @@ export default function ClientHome() {
 
   const fetchProducts = async () => {
     try {
+      // ✅ Lấy TẤT CẢ sản phẩm để tính danh mục
+      const allProductsSnapshot = await getDocs(collection(db, 'products'));
+      const allProductsList: Product[] = allProductsSnapshot.docs.map((doc) => ({
+        id: doc.id,
+        name: doc.data().name,
+        price: doc.data().price,
+        category: doc.data().category,
+        stock: doc.data().stock,
+        imageUrl: doc.data().imageUrl || '',
+        description: doc.data().description || '',
+      }));
+      setAllProducts(allProductsList);
+
+      // Lấy top 10 sản phẩm mới nhất để hiển thị
       const productsRef = collection(db, 'products');
       const q = query(productsRef, orderBy('createdAt', 'desc'), limit(10));
       const snapshot = await getDocs(q);
@@ -168,6 +209,8 @@ export default function ClientHome() {
 
       setProducts(productsList);
       console.log('✅ Loaded products:', productsList.length);
+      console.log('✅ All products:', allProductsList.length);
+      console.log('✅ Categories found:', [...new Set(allProductsList.map(p => p.category))]);
     } catch (error) {
       console.error('❌ Error fetching products:', error);
     } finally {
@@ -378,7 +421,7 @@ export default function ClientHome() {
           </View>
         </View>
 
-        {/* Categories */}
+        {/* Categories - ✅ DYNAMIC */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Danh mục</Text>
@@ -391,29 +434,39 @@ export default function ClientHome() {
             </TouchableOpacity>
           </View>
           
-          <ScrollView 
-            horizontal 
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.categoriesContainer}
-          >
-            {categories.map((category) => (
-              <TouchableOpacity
-                key={category.id}
-                style={styles.categoryCard}
-                onPress={() => handleCategoryPress(category.name)}
-                activeOpacity={0.8}
-              >
-                <LinearGradient
-                  colors={category.colors}
-                  style={styles.categoryGradient}
+          {loading ? (
+            <View style={styles.categoryLoading}>
+              <ActivityIndicator size="small" color="#22C55E" />
+            </View>
+          ) : categories.length > 0 ? (
+            <ScrollView 
+              horizontal 
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.categoriesContainer}
+            >
+              {categories.map((category, index) => (
+                <TouchableOpacity
+                  key={`${category.name}-${index}`}
+                  style={styles.categoryCard}
+                  onPress={() => handleCategoryPress(category.name)}
+                  activeOpacity={0.8}
                 >
-                  <Text style={styles.categoryIcon}>{category.icon}</Text>
-                </LinearGradient>
-                <Text style={styles.categoryName}>{category.name}</Text>
-                <Text style={styles.categoryCount}>{category.count} SP</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
+                  <LinearGradient
+                    colors={category.colors}
+                    style={styles.categoryGradient}
+                  >
+                    <Text style={styles.categoryIcon}>{category.icon}</Text>
+                  </LinearGradient>
+                  <Text style={styles.categoryName} numberOfLines={1}>{category.name}</Text>
+                  <Text style={styles.categoryCount}>{category.count} SP</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          ) : (
+            <View style={styles.categoryEmpty}>
+              <Text style={styles.categoryEmptyText}>Chưa có danh mục nào</Text>
+            </View>
+          )}
         </View>
 
         {/* Quick Actions */}
@@ -669,7 +722,7 @@ export default function ClientHome() {
         <View style={{ height: 100 }} />
       </ScrollView>
 
-      {/* Floating Chat Button - CHỈ HIỆN Ở TRANG CHỦ */}
+      {/* Floating Chat Button */}
       <FloatingChatButton />
     </View>
   );
@@ -903,7 +956,19 @@ const styles = StyleSheet.create({
     color: '#22C55E',
   },
 
-  // Categories
+  // Categories - ✅ THÊM STYLES MỚI
+  categoryLoading: {
+    paddingVertical: 20,
+    alignItems: 'center',
+  },
+  categoryEmpty: {
+    paddingVertical: 30,
+    alignItems: 'center',
+  },
+  categoryEmptyText: {
+    fontSize: 14,
+    color: '#9CA3AF',
+  },
   categoriesContainer: {
     gap: 16,
   },
